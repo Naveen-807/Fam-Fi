@@ -51,6 +51,8 @@ Fam-Fi is a family money app built on [Monad](https://monad.xyz) testnet for the
 
 node scripts/new-wallets.mjs           # creates deployer + relayer + treasury; prints their addresses
 #  -> fund them: https://faucet.monad.xyz (MON, all three) and https://faucet.circle.com (USDC, Monad Testnet, treasury)
+node scripts/wallet-status.mjs         # shows which wallet still needs MON or USDC, and what to do about it
+node scripts/send-mon.mjs --from treasury --to relayer --amount 2   # optional: move MON between your own wallets
 node scripts/deploy-testnet.mjs --dynamic-env <your Dynamic environment id>   # checks balances, deploys, writes all config
 node scripts/start-testnet.mjs         # relayer + indexer + app; open http://localhost:3000
 ```
