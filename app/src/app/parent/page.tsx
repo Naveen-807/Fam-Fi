@@ -67,6 +67,37 @@ function FamilyStep({ onDone }: { onDone: () => void }) {
   );
 }
 
+// ───────────────────────── money requests ─────────────────────────
+
+/** Requests your teens (or anyone) sent you. Paying one moves the money from your balance to theirs. */
+function MoneyRequests({ me, onPaid }: { me: string; onPaid: () => void }) {
+  const { signer } = useWallet();
+  const { busy, run } = useAct();
+  const incoming = useGql<{ Request: any[] }>(Q.requestsTo, { a: me }, `r${me}`);
+  const rows = incoming.data?.Request ?? [];
+  return (
+    <Card title="Money requests" right={rows.length > 0 ? <Pill tone="sun">{rows.length} asking</Pill> : undefined}>
+      {rows.length === 0 ? (
+        <Empty>When your teen asks you for money, it shows up here and you pay with one tap.</Empty>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r) => (
+            <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-card2 p-3">
+              <p className="text-sm">
+                <span className="font-bold">{cap(r.fromFamId)}</span> asks for <span className="num font-bold text-brand">{fmt(big(r.amount))}</span>
+                {r.memo ? <span className="text-muted"> · {r.memo}</span> : null}
+              </p>
+              <Button busy={busy === "pr" + r.id} onClick={async () => { if (await run("pr" + r.id, () => relay(signer!, "payRequest", [BigInt(r.id)]), `Paid ${cap(r.fromFamId)}`)) onPaid(); }}>
+                Pay
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ───────────────────────── dashboard ─────────────────────────
 
 function Dashboard({ acct }: { acct: Account }) {
@@ -92,6 +123,7 @@ function Dashboard({ acct }: { acct: Account }) {
   const waiting = (pending.data?.Pending ?? []).length + (goals.data?.Goal ?? []).filter((g) => g.status === "PROPOSED").length;
 
   return (
+    <div className="grid items-start gap-5 lg:grid-cols-[1.15fr_1fr]">
     <div className="space-y-5">
       <Card>
         <div className="flex flex-wrap items-end justify-between gap-4">
@@ -112,6 +144,8 @@ function Dashboard({ acct }: { acct: Account }) {
         <p className="mt-3 text-xs text-dim">Test dollars have no real value. This is a prototype on a test network.</p>
       </Card>
 
+      <MoneyRequests me={signer!.address.toLowerCase()} onPaid={refreshBalance} />
+
       <Approvals pending={pending.data?.Pending} goals={goals.data?.Goal} waiting={waiting} />
 
       <div className="space-y-4">
@@ -120,6 +154,9 @@ function Dashboard({ acct }: { acct: Account }) {
         {teens.data?.User.map((t) => <TeenPanel key={t.id} teen={t} parentBalance={balance ?? 0n} onChange={refreshBalance} />)}
       </div>
 
+    </div>
+
+    <div className="space-y-5">
       <InviteCard familyId={f} />
 
       <Card title="Goals and gifts">
@@ -139,6 +176,7 @@ function Dashboard({ acct }: { acct: Account }) {
       <Card title="Family timeline">
         <Timeline rows={timeline.data?.TimelineEntry} />
       </Card>
+    </div>
     </div>
   );
 }

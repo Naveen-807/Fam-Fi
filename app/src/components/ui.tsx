@@ -138,7 +138,7 @@ export function Empty({ children }: { children: ReactNode }) {
 export function Shell({ children, famId, role }: { children: ReactNode; famId?: string; role?: string }) {
   const { signer, logout, isDemo } = useWallet();
   return (
-    <div className="mx-auto min-h-screen max-w-3xl px-4 pb-24 pt-5 sm:px-6">
+    <div className="mx-auto min-h-screen max-w-6xl px-5 pb-24 pt-6 lg:px-10">
       <header className="mb-6 flex items-center justify-between gap-2">
         <Link href="/" className="flex flex-none items-center gap-2 whitespace-nowrap font-bold tracking-tight">
           <span className="yellow-grad grid h-9 w-9 place-items-center rounded-xl text-lg font-black text-onbrand shadow-glow">F</span>
@@ -251,7 +251,8 @@ function EmailLogin() {
 function PasskeyPrompt() {
   const { auth, signer, isDemo } = useWallet();
   const [hidden, setHidden] = useState(false);
-  if (isDemo || !signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden) return null;
+  // If this Dynamic environment has passkeys switched off, don't keep offering them.
+  if (isDemo || !signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden || /not enabled/i.test(auth.error ?? "")) return null;
   return (
     <div className="pop mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-brand/30 bg-brand/10 p-4 text-sm text-fg">
       <p className="min-w-0 flex-1">

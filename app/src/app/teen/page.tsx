@@ -107,13 +107,17 @@ function Dashboard({ acct }: { acct: Account }) {
       {tab === "timeline" ? (
         <Card title="Your timeline"><Timeline rows={timeline.data?.TimelineEntry} /></Card>
       ) : (
-        <>
-          <PayCard acct={acct} onDone={refresh} />
-          <Held me={me} view={view} onDone={refresh} />
-          <Requests acct={acct} me={me} onDone={refresh} />
-          <SplitCard onDone={refresh} />
-          <Goals acct={acct} me={me} view={view} onDone={refresh} />
-        </>
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          <div className="space-y-5">
+            <PayCard acct={acct} onDone={refresh} />
+            <Held me={me} view={view} onDone={refresh} />
+            <Requests acct={acct} me={me} onDone={refresh} />
+          </div>
+          <div className="space-y-5">
+            <Goals acct={acct} me={me} view={view} onDone={refresh} />
+            <SplitCard onDone={refresh} />
+          </div>
+        </div>
       )}
     </div>
   );
