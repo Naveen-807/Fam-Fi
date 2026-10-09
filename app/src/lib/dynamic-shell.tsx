@@ -1,6 +1,6 @@
 "use client";
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createDynamicClient } from "@dynamic-labs-sdk/client";
+import { createDynamicClient, getActiveNetworkData, switchActiveNetwork } from "@dynamic-labs-sdk/client";
 import { createWaasWalletAccounts, getChainsMissingWaasWalletAccounts } from "@dynamic-labs-sdk/client/waas";
 import { addEvmExtension, isEvmWalletAccount } from "@dynamic-labs-sdk/evm";
 import { createWalletClientForWalletAccount } from "@dynamic-labs-sdk/evm/viem";
@@ -29,9 +29,29 @@ import type { Signer } from "./relay";
  * Written from Dynamic's published docs; NOT yet exercised against a real environment ID (see README).
  * This module is only ever loaded in the browser (next/dynamic with ssr:false).
  */
+// Dynamic signs typed data on the wallet's ACTIVE network, and a fresh environment only lists Ethereum.
+// So we add our own chain to the SDK's list and make it the default.
+const OUR_NETWORK = {
+  blockExplorerUrls: ["https://testnet.monadvision.com"],
+  chain: "EVM" as const,
+  displayName: cfg.networkLabel,
+  iconUrl: "",
+  name: `famfi-${cfg.chainId}`,
+  nativeCurrency: { decimals: 18, name: "Monad", symbol: "MON" },
+  networkId: String(cfg.chainId),
+  rpcUrls: { http: [cfg.rpcUrl] },
+  testnet: true,
+};
+
 const dynamicClient = createDynamicClient({
   environmentId: cfg.dynamicEnvId,
   metadata: { name: "Fam-Fi", universalLink: window.location.origin },
+  transformers: {
+    networksData: (networks) => {
+      const ours = networks.find((n) => n.chain === "EVM" && n.networkId === OUR_NETWORK.networkId) ?? (OUR_NETWORK as any);
+      return [ours, ...networks.filter((n) => n !== ours)];
+    },
+  },
 });
 addEvmExtension();
 const queryClient = new QueryClient();
@@ -45,6 +65,15 @@ const readFlag = () => {
   }
 };
 
+/** Dynamic's HTTP errors hide the useful part in the response body. Pull it out so the screen can say what went wrong. */
+function detailOf(e: any): string | null {
+  const d = e?.response?.data;
+  if (!d) return null;
+  if (typeof d === "string") return d.slice(0, 200);
+  const m = d?.error?.message ?? d?.message ?? (typeof d?.error === "string" ? d.error : null) ?? d?.errors?.[0]?.message;
+  return typeof m === "string" ? m.slice(0, 200) : JSON.stringify(d).slice(0, 200);
+}
+
 /** Turn SDK errors into words a family would understand. */
 const msg = (e: unknown) => {
   const m: string = (e as any)?.message || String(e);
@@ -54,6 +83,13 @@ const msg = (e: unknown) => {
   if (/NotAllowed|cancel|abort/i.test(m)) return "Face ID / fingerprint was cancelled. Try again, or use your email.";
   return m.length > 160 ? m.slice(0, 160) + "…" : m;
 };
+
+/** Make sure the wallet is on our chain before it signs (Dynamic signs on the active network). */
+async function ensureOurNetwork(walletAccount: any) {
+  const { networkData } = await getActiveNetworkData({ walletAccount });
+  if (String(networkData?.networkId) === OUR_NETWORK.networkId) return;
+  await switchActiveNetwork({ walletAccount, networkId: OUR_NETWORK.networkId });
+}
 
 function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
   const { data: init } = useInitStatus();
@@ -100,14 +136,27 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
     if (init === "finished" && user && !evm) void makeWallet();
   }, [init, user, evm, makeWallet]);
 
+  // Put a brand-new (or returning) wallet on our chain as soon as it exists, so the first signature just works.
+  useEffect(() => {
+    if (evm) void ensureOurNetwork(evm).catch(() => {});
+  }, [evm]);
+
   const signer: Signer | null = useMemo(() => {
     if (!evm || !address) return null;
     return {
       address,
       kind: "dynamic",
       signTypedData: async (domain, types, message, primaryType) => {
-        const walletClient: any = await createWalletClientForWalletAccount({ walletAccount: evm as any });
-        return walletClient.signTypedData({ domain, types, primaryType, message });
+        try {
+          await ensureOurNetwork(evm);
+          const walletClient: any = await createWalletClientForWalletAccount({ walletAccount: evm as any });
+          return await walletClient.signTypedData({ domain, types, primaryType, message });
+        } catch (e) {
+          const d = detailOf(e);
+          // eslint-disable-next-line no-console
+          console.error("Dynamic signing failed", { status: (e as any)?.response?.status, body: (e as any)?.response?.data, error: e });
+          throw new Error(d ? `Your wallet couldn't sign this: ${d}` : (e as any)?.message || "Your wallet couldn't sign this.");
+        }
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
