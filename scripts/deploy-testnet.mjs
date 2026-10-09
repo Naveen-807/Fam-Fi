@@ -28,6 +28,8 @@ const NETWORK_LABEL = CHAIN_ID === 10143 ? "Monad testnet" : `Chain ${CHAIN_ID}`
 const stop = (msg) => { console.error("\n" + msg + "\n"); process.exit(1); };
 if (!existsSync(WALLETS)) stop(`No wallets file at ${WALLETS}. Run:  node scripts/new-wallets.mjs`);
 const W = JSON.parse(readFileSync(WALLETS, "utf8"));
+const HARDHAT = path.join(root, "contracts", "node_modules", ".bin", "hardhat");
+if (!existsSync(HARDHAT)) stop("The project isn't installed yet. Run this first (it takes a few minutes):\n\n    node scripts/install-all.mjs\n\nThen run this command again.");
 if (!DYNAMIC) console.warn("Note: no --dynamic-env given. Real email sign-in stays off until you add NEXT_PUBLIC_DYNAMIC_ENV_ID to app/.env.local.\n");
 
 const provider = new ethers.JsonRpcProvider(RPC, undefined, { staticNetwork: true });
@@ -55,7 +57,7 @@ if (problems.length) stop("Not ready yet. Please fix:\n  • " + problems.join("
 
 // ── 2. deploy (the contract takes the USDC address as a parameter, nothing is mocked) ──
 console.log("\nDeploying FamFi and the forwarder…");
-const r = spawnSync("npx", ["hardhat", "run", "scripts/deploy.ts", "--network", "monadTestnet"], {
+const r = spawnSync(HARDHAT, ["run", "scripts/deploy.ts", "--network", "monadTestnet"], {
   cwd: path.join(root, "contracts"),
   env: { ...process.env, DEPLOYER_KEY: W.deployer.privateKey, MONAD_RPC_URL: RPC, MONAD_CHAIN_ID: String(CHAIN_ID), USDC_ADDRESS: USDC },
   encoding: "utf8",

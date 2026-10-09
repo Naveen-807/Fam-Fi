@@ -8,9 +8,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const [nodeMajor, nodeMinor] = process.versions.node.split(".").map(Number);
+if (nodeMajor < 22 || (nodeMajor === 22 && nodeMinor < 15)) {
+  console.error(`\nYour Node (${process.versions.node}) is too old for the indexer. Install Node 22.15 or newer from https://nodejs.org, reopen Terminal, and run  node scripts/install-all.mjs  again.\n`);
+  process.exit(1);
+}
 for (const f of ["relayer/.env", "indexer/.env", "app/.env.local"]) {
   if (!existsSync(path.join(root, f))) {
     console.error(`\nMissing ${f}. Run first:  node scripts/deploy-testnet.mjs --dynamic-env <id>\n`);
+    process.exit(1);
+  }
+}
+for (const part of ["relayer", "indexer", "app"]) {
+  if (!existsSync(path.join(root, part, "node_modules"))) {
+    console.error(`\nThe ${part} folder isn't installed yet. Run:  node scripts/install-all.mjs\n`);
     process.exit(1);
   }
 }

@@ -44,11 +44,7 @@ Fam-Fi is a family money app built on [Monad](https://monad.xyz) testnet for the
 **Real mode (your wallets, Circle's real testnet USDC, Monad testnet).** Nothing is mocked or pre-filled: every person is their own wallet, every number a parent sets is the number their teen gets, and the contract has no built-in limits.
 
 ```bash
-(cd contracts && npm install --legacy-peer-deps)
-(cd relayer   && npm install --legacy-peer-deps)
-(cd indexer   && npm install --legacy-peer-deps)
-(cd app       && npm install --legacy-peer-deps)
-
+node scripts/install-all.mjs           # installs every part (needs Node 22.15+; a few minutes the first time)
 node scripts/new-wallets.mjs           # creates deployer + relayer + treasury; prints their addresses
 #  -> fund them: https://faucet.monad.xyz (MON, all three) and https://faucet.circle.com (USDC, Monad Testnet, treasury)
 node scripts/wallet-status.mjs         # shows which wallet still needs MON or USDC, and what to do about it
