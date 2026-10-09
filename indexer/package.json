@@ -1,0 +1,22 @@
+{
+  "name": "famfi-indexer",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "scripts": {
+    "codegen": "envio codegen",
+    "dev": "envio dev",
+    "start": "envio start",
+    "test": "tsx --test test/indexer.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "envio": "^3.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "type": "module"
+}

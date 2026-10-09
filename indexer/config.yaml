@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: famfi
+handlers: src
+field_selection:
+  transaction_fields:
+    - hash
+contracts:
+  - name: FamFi
+    abi_file_path: ../abi/FamFi.json
+    handler: src/EventHandlers.ts
+    events:
+      - event: FamIdRegistered
+      - event: FamilyCreated
+      - event: TeenAdded
+      - event: Deposited
+      - event: StreamFunded
+      - event: Paid
+      - event: PaymentHeld
+      - event: PendingResolved
+      - event: LimitsSet
+      - event: Frozen
+      - event: Unfrozen
+      - event: RoundUpSet
+      - event: GoalProposed
+      - event: GoalApproved
+      - event: GiftLocked
+      - event: GoalSaved
+      - event: GiftReleased
+      - event: GoalCompleted
+      - event: LevelUp
+      - event: GiftReclaimed
+      - event: GoalClosed
+      - event: GoalSpent
+      - event: SplitCreated
+      - event: SplitSharePaid
+      - event: RequestCreated
+      - event: RequestPaid
+chains:
+  - id: 10143 # Monad testnet
+    start_block: 0 # set to the deploy block from deployments/monad-testnet.json after deploying
+    contracts:
+      - name: FamFi
+        address: "${ENVIO_FAMFI_ADDRESS:-0x0000000000000000000000000000000000000001}"

@@ -1,0 +1,129 @@
+# Amounts are USDC base units (6 decimals). Addresses are lowercase hex strings.
+
+type User {
+  id: ID! # lowercase address
+  famId: String!
+  role: String!
+  familyId: Int!
+  level: Int!
+  frozen: Boolean!
+  createdAt: Int!
+}
+
+type Family {
+  id: ID! # familyId
+  parent: String!
+  parentFamId: String!
+  createdAt: Int!
+}
+
+type Stream {
+  id: ID! # teen address
+  remaining: BigInt!
+  rate: BigInt!
+  updatedAt: Int!
+}
+
+type Payment {
+  id: ID!
+  fromAddr: String!
+  toAddr: String!
+  fromFamId: String!
+  toFamId: String!
+  amount: BigInt!
+  memo: String!
+  ts: Int!
+  txHash: String!
+}
+
+type Pending {
+  id: ID! # pending id
+  fromAddr: String!
+  toAddr: String!
+  fromFamId: String!
+  toFamId: String!
+  familyId: Int!
+  amount: BigInt!
+  kind: String! # OVER_LIMIT | ANOMALY
+  status: String! # OPEN | EXECUTED | REJECTED | CANCELLED
+  releaseAt: Int!
+  refKind: String! # NONE | SPLIT | REQUEST
+  refId: String!
+  memo: String!
+  createdAt: Int!
+  txHash: String!
+}
+
+type Goal {
+  id: ID!
+  teen: String!
+  teenFamId: String!
+  familyId: Int!
+  target: BigInt!
+  saved: BigInt!
+  matched: BigInt!
+  status: String! # PROPOSED | ACTIVE | COMPLETE | CLOSED
+  deadline: Int!
+  memo: String!
+  sponsorOpen: Boolean!
+  createdAt: Int!
+}
+
+type Gift {
+  id: ID!
+  goalId: String!
+  sponsor: String!
+  sponsorFamId: String!
+  amount: BigInt!
+  escrow: BigInt!
+  released: BigInt!
+  ratio: BigInt!
+  deadline: Int!
+  createdAt: Int!
+}
+
+type Split {
+  id: ID!
+  creator: String!
+  creatorFamId: String!
+  perShare: BigInt!
+  slots: Int!
+  paid: Int!
+  memo: String!
+  createdAt: Int!
+}
+
+type SplitShare {
+  id: ID! # splitId-payer
+  splitId: String!
+  payer: String!
+  payerFamId: String!
+  active: Boolean!
+  ts: Int!
+}
+
+type Request {
+  id: ID!
+  fromAddr: String!
+  toAddr: String!
+  fromFamId: String!
+  toFamId: String!
+  amount: BigInt!
+  status: String! # OPEN | PAID
+  memo: String!
+  createdAt: Int!
+}
+
+# One row per thing worth showing on a timeline, already written in plain language.
+type TimelineEntry {
+  id: ID!
+  ts: Int!
+  kind: String!
+  text: String!
+  amount: BigInt
+  actor: String! # address of the main person
+  counterparty: String # address of the other person, if any
+  familyId: Int! # family of the actor (0 if none)
+  counterpartyFamilyId: Int!
+  txHash: String!
+}

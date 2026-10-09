@@ -146,7 +146,7 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
     event Deposited(address indexed by, address indexed user, uint256 amount);
     event StreamFunded(address indexed teen, uint128 budget, uint128 rate, uint128 remaining);
     event Paid(address indexed from, address indexed to, uint256 amount, string memo);
-    event PaymentHeld(uint256 indexed id, address indexed from, address indexed to, uint256 amount, PendingKind kind, uint64 releaseAt, string memo);
+    event PaymentHeld(uint256 indexed id, address indexed from, address indexed to, uint256 amount, PendingKind kind, uint64 releaseAt, RefKind refKind, uint256 refId, string memo);
     event PendingResolved(uint256 indexed id, PendingStatus outcome);
     event LimitsSet(address indexed teen, uint128[4] levelLimits, uint128 newPayeeThreshold, uint128 firstDayCap, uint32 holdSeconds, bool strictHolds);
     event Frozen(address indexed teen);
@@ -161,6 +161,7 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
     event LevelUp(address indexed teen, uint8 newLevel);
     event GiftReclaimed(uint256 indexed giftId, address indexed sponsor, uint128 amount);
     event GoalClosed(uint256 indexed goalId, uint128 returned);
+    event GoalSpent(uint256 indexed goalId, address indexed teen, address indexed to, uint128 amount);
     event SplitCreated(uint256 indexed splitId, address indexed creator, uint128 perShare, uint32 slots, string memo);
     event SplitSharePaid(uint256 indexed splitId, address indexed payer, uint32 paidCount);
     event RequestCreated(uint256 indexed requestId, address indexed from, address indexed to, uint128 amount, string memo);
@@ -412,6 +413,7 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
         balance[to] += total;
         paidBefore[teen][to] = true;
         emit Paid(teen, to, total, "goal");
+        emit GoalSpent(goalId, teen, to, total);
     }
 
     /// @notice After the goal's deadline an unfinished goal can be closed; the teen gets saved + matched back.
@@ -634,7 +636,7 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
         pendings[id] = Pending(
             from, to, amount, kind, PendingStatus.OPEN, refKind, today, uint64(block.timestamp), releaseAt, refId
         );
-        emit PaymentHeld(id, from, to, amount, kind, releaseAt, memo);
+        emit PaymentHeld(id, from, to, amount, kind, releaseAt, refKind, refId, memo);
     }
 
     function _executePending(uint256 id, Pending storage p) internal {

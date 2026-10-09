@@ -397,6 +397,37 @@
     "inputs": [
       {
         "indexed": true,
+        "internalType": "uint256",
+        "name": "goalId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "teen",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint128",
+        "name": "amount",
+        "type": "uint128"
+      }
+    ],
+    "name": "GoalSpent",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
         "internalType": "address",
         "name": "teen",
         "type": "address"
@@ -523,6 +554,18 @@
         "internalType": "uint64",
         "name": "releaseAt",
         "type": "uint64"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum FamFi.RefKind",
+        "name": "refKind",
+        "type": "uint8"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "refId",
+        "type": "uint256"
       },
       {
         "indexed": false,
