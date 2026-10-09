@@ -1,13 +1,13 @@
 "use client";
-import { createContext, lazy, ReactNode, Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { ethers } from "ethers";
 import { cfg } from "./config";
+import type { Bridge, DynamicAuth } from "./bridge";
 import type { Signer } from "./relay";
 
 /** Judge Mode / demo identities are derived from a name. These keys are PUBLIC BY DESIGN: they only ever hold valueless testnet tokens. */
 export const demoKey = (name: string) => ethers.id(`famfi-demo-${name}`);
-
-export type Bridge = { signer: Signer | null; login: () => void; logout: () => void; ready: boolean };
 
 type Ctx = {
   signer: Signer | null;
@@ -16,6 +16,9 @@ type Ctx = {
   isDemo: boolean;
   /** true when real Dynamic login is configured */
   hasDynamic: boolean;
+  /** the email / passkey sign-in controls (only when Dynamic is configured) */
+  auth?: DynamicAuth;
+  /** Without Dynamic configured this makes a fresh demo wallet. With Dynamic, the sign-in form is used instead. */
   login: () => void;
   /** Sign in as a named Judge Mode persona (priya, alex, riya, aunt, canteen) or a brand-new demo wallet. */
   loginDemo: (name?: string) => void;
@@ -27,7 +30,13 @@ const WalletCtx = createContext<Ctx>({
 });
 export const useWallet = () => useContext(WalletCtx);
 
-const DynamicShell = cfg.dynamicEnvId ? lazy(() => import("./dynamic-shell")) : null;
+// The Dynamic SDK touches `window`, so it is only ever loaded in the browser, and only when configured.
+const DynamicShell = cfg.dynamicEnvId
+  ? dynamic(() => import("./dynamic-shell"), {
+      ssr: false,
+      loading: () => <div className="p-8 text-center text-slate-500">Loading…</div>,
+    })
+  : null;
 
 function demoSigner(key: string): Signer {
   const w = new ethers.Wallet(key);
@@ -37,7 +46,7 @@ function demoSigner(key: string): Signer {
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [demoKeyHex, setDemoKeyHex] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
-  const [bridge, setBridge] = useState<Bridge>({ signer: null, login() {}, logout() {}, ready: !cfg.dynamicEnvId });
+  const [bridge, setBridge] = useState<Bridge>({ signer: null, logout() {}, ready: !cfg.dynamicEnvId });
 
   // Demo sessions live in sessionStorage only (gone when the tab closes). Real logins live in Dynamic.
   useEffect(() => {
@@ -78,7 +87,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       ready: hydrated && bridge.ready,
       isDemo: !!demo,
       hasDynamic: !!cfg.dynamicEnvId,
-      login: cfg.dynamicEnvId ? bridge.login : () => loginDemo(),
+      auth: bridge.auth,
+      login: cfg.dynamicEnvId ? () => {} : () => loginDemo(),
       loginDemo,
       logout,
     }),
@@ -87,9 +97,5 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const inner = <WalletCtx.Provider value={value}>{children}</WalletCtx.Provider>;
   if (!DynamicShell) return inner;
-  return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-500">Loading…</div>}>
-      <DynamicShell onBridge={setBridge}>{inner}</DynamicShell>
-    </Suspense>
-  );
+  return <DynamicShell onBridge={setBridge}>{inner}</DynamicShell>;
 }

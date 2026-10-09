@@ -8,3 +8,4 @@ dist/
 .local/
 e2e/shots/
 *.tsbuildinfo
+.next-dyn/

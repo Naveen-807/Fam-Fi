@@ -153,6 +153,7 @@ export function Shell({ children, famId, role }: { children: ReactNode; famId?: 
           )}
         </div>
       </header>
+      <PasskeyPrompt />
       {children}
     </div>
   );
@@ -165,12 +166,13 @@ export function SignIn({ title, blurb, personas }: { title: string; blurb: strin
     <Card className="mx-auto mt-6 max-w-md text-center">
       <h1 className="text-2xl font-bold">{title}</h1>
       <p className="mt-2 text-sm text-slate-600">{blurb}</p>
-      <div className="mt-5 space-y-2">
-        <Button full onClick={login} disabled={!ready}>
-          {hasDynamic ? "Continue with email" : "Create a demo account"}
-        </Button>
-        {hasDynamic && (
-          <p className="text-xs text-slate-500">We email you a one-time code, then you can switch on Face ID or fingerprint. No passwords.</p>
+      <div className="mt-5">
+        {hasDynamic ? (
+          <EmailLogin />
+        ) : (
+          <Button full onClick={login} disabled={!ready}>
+            Create a demo account
+          </Button>
         )}
       </div>
       {personas && personas.length > 0 && (
@@ -186,6 +188,79 @@ export function SignIn({ title, blurb, personas }: { title: string; blurb: strin
         </div>
       )}
     </Card>
+  );
+}
+
+/** Email one-time code, plus a Face ID / fingerprint shortcut for people who turned it on before. */
+function EmailLogin() {
+  const { auth, ready } = useWallet();
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  if (!auth) return <p className="text-sm text-slate-500">Loading…</p>;
+
+  if (auth.step === "wallet")
+    return (
+      <div className="text-sm text-slate-600" role="status">
+        <p className="font-semibold text-ink">Setting up your account…</p>
+        <p className="mt-1">Creating your private wallet. This takes a few seconds and you only do it once.</p>
+        {auth.error && <p className="mt-2 text-rose-600">{auth.error}</p>}
+      </div>
+    );
+
+  if (auth.step === "code")
+    return (
+      <form
+        className="space-y-3 text-left"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void auth.verifyCode(code);
+        }}
+      >
+        <Field label={`Enter the code we emailed to ${auth.userEmail ?? "you"}`}>
+          <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\s/g, ""))} inputMode="numeric" autoComplete="one-time-code" placeholder="123456" autoFocus aria-label="One-time code" />
+        </Field>
+        {auth.error && <p className="text-sm text-rose-600" role="alert">{auth.error}</p>}
+        <Button full type="submit" busy={auth.busy} disabled={code.length < 4}>Verify and continue</Button>
+        <button type="button" className="w-full text-center text-xs font-semibold text-slate-500 underline" onClick={auth.reset}>Use a different email</button>
+      </form>
+    );
+
+  return (
+    <form
+      className="space-y-3 text-left"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void auth.sendCode(email.trim());
+      }}
+    >
+      <Field label="Your email" hint="We email you a one-time code. No passwords, no wallet to set up.">
+        <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" aria-label="Email" />
+      </Field>
+      {auth.error && <p className="text-sm text-rose-600" role="alert">{auth.error}</p>}
+      <Button full type="submit" busy={auth.busy} disabled={!ready || !/^\S+@\S+\.\S+$/.test(email.trim())}>Email me a code</Button>
+      <button type="button" className="w-full text-center text-xs font-semibold text-slate-500 underline" onClick={() => void auth.signInWithPasskey()}>
+        Already turned on Face ID or fingerprint? Sign in with it
+      </button>
+    </form>
+  );
+}
+
+/** Shown once after the first email login: turn on Face ID / fingerprint for next time. */
+function PasskeyPrompt() {
+  const { auth, signer, isDemo } = useWallet();
+  const [hidden, setHidden] = useState(false);
+  if (isDemo || !signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden) return null;
+  return (
+    <div className="pop mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-mint-50 p-4 text-sm text-mint-700">
+      <p className="min-w-0 flex-1">
+        <b>Next time, skip the email.</b> Turn on Face ID or fingerprint on this device.
+        {auth.error && <span className="mt-1 block text-rose-600">{auth.error}</span>}
+      </p>
+      <div className="flex gap-2">
+        <Button busy={auth.busy} onClick={() => void auth.registerPasskey()}>Turn on</Button>
+        <Button variant="ghost" onClick={() => setHidden(true)}>Not now</Button>
+      </div>
+    </div>
   );
 }
 

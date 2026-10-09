@@ -10,14 +10,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dynamic-labs/ethereum": "^5.10.0",
-    "@dynamic-labs/sdk-react-core": "^5.10.0",
+    "@dynamic-labs-sdk/client": "^1.39.1",
+    "@dynamic-labs-sdk/evm": "^1.39.1",
+    "@dynamic-labs-sdk/react-hooks": "^1.39.1",
+    "@tanstack/react-query": "^5.104.1",
     "ethers": "^6.13.5",
+    "graphql": "^16.10.0",
     "graphql-ws": "^5.16.2",
     "next": "^15.1.6",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "viem": "^2.57.4"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
