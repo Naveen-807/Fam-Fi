@@ -147,14 +147,19 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
       address,
       kind: "dynamic",
       signTypedData: async (domain, types, message, primaryType) => {
+        let payloadForDebug: unknown;
         try {
           await ensureOurNetwork(evm);
           const walletClient: any = await createWalletClientForWalletAccount({ walletAccount: evm as any });
-          return await walletClient.signTypedData({ domain, types, primaryType, message });
+          // Dynamic's signing API requires domain.chainId to be a plain NUMBER. The SDK stringifies BigInts,
+          // so a BigInt chain id would arrive as "10143" and be rejected with a bare HTTP 400.
+          const fixedDomain = domain && domain.chainId !== undefined ? { ...domain, chainId: Number(domain.chainId) } : domain;
+          payloadForDebug = { primaryType, domain: fixedDomain, types, message };
+          return await walletClient.signTypedData({ domain: fixedDomain, types, primaryType, message });
         } catch (e) {
           const d = detailOf(e);
           // eslint-disable-next-line no-console
-          console.error("Dynamic signing failed", { status: (e as any)?.response?.status, body: (e as any)?.response?.data, error: e });
+          console.error("Dynamic signing failed", { status: (e as any)?.response?.status, body: (e as any)?.response?.data, error: e, payload: JSON.parse(JSON.stringify(payloadForDebug ?? null, (_k, v) => (typeof v === "bigint" ? v.toString() : v))) });
           throw new Error(d ? `Your wallet couldn't sign this: ${d}` : (e as any)?.message || "Your wallet couldn't sign this.");
         }
       },
