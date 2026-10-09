@@ -76,7 +76,7 @@ try {
   log(await see(aunt, "Gift locked"), "relative locks a 1:1 gift");
 
   await alex.reload();
-  await alex.getByText("+ Add test money (demo only)").click();
+  await alex.getByText("+ Add test USDC").click();
   log(await see(alex, "Added"), "teen tops up test money");
   await alex.getByLabel("Save toward Headphones").fill("5");
   await alex.getByRole("button", { name: "Save", exact: true }).click();
@@ -113,7 +113,32 @@ try {
   log(await see(alex, "frozen"), "frozen teen is blocked with a clear message");
   await shot(alex, "08-frozen");
 
-  // 6. timeline tells the story
+  // 6. the REAL onboarding path: a parent writes their own numbers, and a brand-new wallet joins with them
+  await parent.reload();
+  await parent.getByLabel("Level 1 daily limit").fill("2");
+  await parent.getByLabel("Level 2 daily limit").fill("4");
+  await parent.getByLabel("Level 3 daily limit").fill("6");
+  await parent.getByLabel("Level 4 daily limit").fill("8");
+  await parent.getByLabel("New payee hold amount").fill("1");
+  await parent.getByLabel("First day hold amount").fill("1");
+  await parent.getByLabel("Hold minutes").fill("1");
+  await parent.getByRole("button", { name: "Create invite link" }).click();
+  const invite = await parent.getByLabel("Invite link").inputValue({ timeout: 15000 });
+  log(invite.includes("&t="), "parent's own numbers are signed into the invite link");
+  const kidCtx = await browser.newContext({ viewport: { width: 430, height: 950 } });
+  const kid = await kidCtx.newPage();
+  await kid.goto(invite);
+  await kid.getByRole("button", { name: "Create a demo account" }).click();
+  log(await see(kid, "The rules your parent chose"), "new teen is shown the parent's rules before joining");
+  log(await see(kid, "Daily spending limit: 2.00 to start, rising to 8.00"), "the rules shown are the numbers the parent typed");
+  const kidName = "kid" + Math.floor(Math.random() * 1e6);
+  await kid.getByLabel("Fam-ID").fill(kidName);
+  await kid.getByRole("button", { name: "Join my family" }).click();
+  await kid.waitForURL("**/teen", { timeout: 30000 });
+  log(await see(kid, "Daily limit 2.00"), "a brand-new wallet joined and got the parent's limit, not a built-in one");
+  await shot(kid, "10-new-teen");
+
+  // 7. timeline tells the story
   await alex.getByRole("tab", { name: "Timeline" }).click();
   log(await see(alex, "saved 5.00 toward"), "timeline tells the story in plain language");
   await shot(alex, "09-timeline");

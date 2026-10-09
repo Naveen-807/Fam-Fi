@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Card, Shell } from "@/components/ui";
 import { useWallet } from "@/lib/wallet";
+import { cfg } from "@/lib/config";
 
 const PERSONAS = [
   { name: "priya", label: "Parent", to: "/parent", blurb: "Approve payments, set limits, freeze" },
@@ -38,6 +39,7 @@ export default function Home() {
         </div>
       </section>
 
+      {cfg.judgeMode && (
       <Card className="mt-10" title="Judge Mode">
         <p className="mb-4 text-sm text-slate-600">
           Pick a ready-made person and click around. Every action is a real transaction on the test network, and nobody needs any gas.
@@ -60,6 +62,7 @@ export default function Home() {
           ))}
         </div>
       </Card>
+      )}
 
       <div className="mt-8 grid gap-4 sm:grid-cols-3">
         {[

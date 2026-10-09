@@ -97,7 +97,7 @@ function Pay({ split, me, already }: { split: any; me: string; already: boolean 
       <div className="mt-4 flex flex-wrap gap-2">
         {short && (
           <Button variant="soft" busy={busy === "add"} onClick={() => run("add", async () => { const r = await faucet(me); await refreshBalance(); return r; }, (r) => `Added ${r.amount} test dollars`)}>
-            + Add test money
+            + Add test USDC
           </Button>
         )}
         <Button

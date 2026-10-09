@@ -1,6 +1,7 @@
 import { ethers } from "ethers";
 import { cfg } from "./config";
 import { fam, fwd, provider, friendlyError } from "./chain";
+import type { Terms } from "./terms";
 
 export type Signer = {
   address: string;
@@ -122,8 +123,9 @@ export async function faucet(famId: string): Promise<{ hash: string; amount: str
   return body;
 }
 
-/** The parent's EIP-712 invite for a teen. Whoever opens the link first with a valid signature becomes the teen. */
-export async function signInvite(signer: Signer, familyId: number) {
+/** The parent's EIP-712 invite, with the starting rules signed in so a teen cannot change them.
+ *  Whoever opens the link first with a valid signature becomes the teen. */
+export async function signInvite(signer: Signer, familyId: number, terms: Terms) {
   const inviteId = ethers.hexlify(ethers.randomBytes(32));
   const deadline = Math.floor(Date.now() / 1000) + 7 * 86400;
   const domain = { name: "FamFi", version: "1", chainId: BigInt(cfg.chainId), verifyingContract: cfg.famfi };
@@ -132,10 +134,20 @@ export async function signInvite(signer: Signer, familyId: number) {
       { name: "familyId", type: "uint32" },
       { name: "inviteId", type: "bytes32" },
       { name: "deadline", type: "uint256" },
+      { name: "levelLimits", type: "uint128[4]" },
+      { name: "newPayeeThreshold", type: "uint128" },
+      { name: "firstDayCap", type: "uint128" },
+      { name: "holdSeconds", type: "uint32" },
+      { name: "strictHolds", type: "bool" },
     ],
   };
-  const sig = await signer.signTypedData(domain, types, { familyId, inviteId, deadline: BigInt(deadline) }, "Invite");
-  return { familyId, inviteId, deadline, sig };
+  const sig = await signer.signTypedData(
+    domain,
+    types,
+    { familyId, inviteId, deadline: BigInt(deadline), ...terms },
+    "Invite",
+  );
+  return { familyId, inviteId, deadline, terms, sig };
 }
 
 export const explorerTx = (hash: string) => (cfg.explorerTx ? cfg.explorerTx + hash : "");

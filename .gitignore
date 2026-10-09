@@ -9,3 +9,4 @@ dist/
 e2e/shots/
 *.tsbuildinfo
 .next-dyn/
+.wallets.json

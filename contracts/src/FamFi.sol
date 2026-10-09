@@ -47,6 +47,16 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
         uint128[4] levelLimits;
     }
 
+    /// @notice The starting rules a parent chooses for a teen. They are signed into the invite, so the contract
+    /// has no built-in numbers: every family sets its own.
+    struct Terms {
+        uint128[4] levelLimits; // daily limit at each level, ascending
+        uint128 newPayeeThreshold; // a first payment to someone new above this is held
+        uint128 firstDayCap; // in a teen's first 24 hours, a payment above this is held
+        uint32 holdSeconds; // how long a held payment waits (at most 1 day)
+        bool strictHolds; // true: a parent must approve every hold
+    }
+
     struct Stream {
         uint128 remaining;
         uint128 rate; // USDC base units per second
@@ -137,7 +147,9 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
     uint256 public requestCount;
     mapping(uint256 => Request) public requests;
 
-    bytes32 private constant INVITE_TYPEHASH = keccak256("Invite(uint32 familyId,bytes32 inviteId,uint256 deadline)");
+    bytes32 private constant INVITE_TYPEHASH = keccak256(
+        "Invite(uint32 familyId,bytes32 inviteId,uint256 deadline,uint128[4] levelLimits,uint128 newPayeeThreshold,uint128 firstDayCap,uint32 holdSeconds,bool strictHolds)"
+    );
 
     // ───────────────────────────── events ─────────────────────────────
     event FamIdRegistered(address indexed user, bytes32 indexed famId, Role role);
@@ -197,15 +209,20 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
 
     /// @notice Join a family as a teen. `parentSig` is the parent's EIP-712 signature over the invite.
     /// The invite is bearer: whoever submits it first with a valid signature becomes the teen.
-    function acceptInvite(uint32 familyId, bytes32 inviteId, uint256 deadline, bytes calldata parentSig, bytes32 famId)
-        external
-    {
+    function acceptInvite(
+        uint32 familyId,
+        bytes32 inviteId,
+        uint256 deadline,
+        Terms calldata terms,
+        bytes calldata parentSig,
+        bytes32 famId
+    ) external {
         require(block.timestamp <= deadline, "invite expired");
         require(!usedInvite[inviteId], "invite used");
         address parent = familyParent[familyId];
         require(parent != address(0), "no family");
-        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(INVITE_TYPEHASH, familyId, inviteId, deadline)));
-        require(ECDSA.recover(digest, parentSig) == parent, "bad invite sig");
+        _checkTerms(terms);
+        require(ECDSA.recover(_inviteDigest(familyId, inviteId, deadline, terms), parentSig) == parent, "bad invite sig");
         usedInvite[inviteId] = true;
 
         address teen = _msgSender();
@@ -213,12 +230,14 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
 
         TeenCfg storage c = teenCfg[teen];
         c.tzOffset = familyTz[familyId];
-        c.holdSeconds = 10 minutes;
-        c.newPayeeThreshold = 3e6;
-        c.firstDayCap = 2e6;
-        c.levelLimits = [uint128(5e6), 8e6, 12e6, 20e6];
+        c.levelLimits = terms.levelLimits;
+        c.newPayeeThreshold = terms.newPayeeThreshold;
+        c.firstDayCap = terms.firstDayCap;
+        c.holdSeconds = terms.holdSeconds;
+        c.strictHolds = terms.strictHolds;
         c.dayIndex = _today(c.tzOffset);
         emit TeenAdded(teen, famId, familyId);
+        emit LimitsSet(teen, terms.levelLimits, terms.newPayeeThreshold, terms.firstDayCap, terms.holdSeconds, terms.strictHolds);
     }
 
     // ───────────────────────────── money in ─────────────────────────────
@@ -259,6 +278,7 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
         bool strictHolds
     ) external {
         _requireParentOf(_msgSender(), teen);
+        require(levelLimits[0] > 0, "set a daily limit");
         for (uint256 i = 1; i < 4; i++) require(levelLimits[i] >= levelLimits[i - 1], "limits not ascending");
         require(holdSeconds <= 1 days, "hold too long");
         TeenCfg storage c = teenCfg[teen];
@@ -544,6 +564,29 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
             len++;
         }
         return len >= 3 && len <= 20;
+    }
+
+    function _checkTerms(Terms calldata t) internal pure {
+        require(t.levelLimits[0] > 0, "set a daily limit");
+        for (uint256 i = 1; i < 4; i++) require(t.levelLimits[i] >= t.levelLimits[i - 1], "limits not ascending");
+        require(t.holdSeconds <= 1 days, "hold too long");
+    }
+
+    function _inviteDigest(uint32 familyId, bytes32 inviteId, uint256 deadline, Terms calldata t)
+        internal
+        view
+        returns (bytes32)
+    {
+        bytes32 limitsHash = keccak256(
+            abi.encodePacked(uint256(t.levelLimits[0]), uint256(t.levelLimits[1]), uint256(t.levelLimits[2]), uint256(t.levelLimits[3]))
+        );
+        return _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    INVITE_TYPEHASH, familyId, inviteId, deadline, limitsHash, t.newPayeeThreshold, t.firstDayCap, t.holdSeconds, t.strictHolds
+                )
+            )
+        );
     }
 
     function _requireParentOf(address parent, address teen) internal view {

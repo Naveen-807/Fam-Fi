@@ -16,6 +16,9 @@ const FAMFI = process.env.FAMFI_ADDRESS;
 if (!FAMFI) throw new Error("FAMFI_ADDRESS is required");
 const PORT = Number(process.env.PORT || 8080);
 let nextBlock = Number(process.env.START_BLOCK || 0);
+const LOG_RANGE = Number(process.env.LOG_RANGE || 90); // public Monad RPCs allow ~100 blocks per eth_getLogs
+const POLL_MS = Number(process.env.POLL_MS || 1500);
+let lastSync = 0;
 
 const abi = JSON.parse(readFileSync(new URL("../abi/FamFi.json", import.meta.url), "utf8"));
 const iface = new ethers.Interface(abi);
@@ -42,27 +45,31 @@ async function sync() {
   try {
     const head = await provider.getBlockNumber();
     if (head < nextBlock) return;
-    const logs = await provider.getLogs({ address: FAMFI, fromBlock: nextBlock, toBlock: head });
     const simulate: any[] = [];
-    for (const log of logs) {
-      const parsed = iface.parseLog(log);
-      if (!parsed) continue;
-      const params: Record<string, any> = {};
-      parsed.fragment.inputs.forEach((inp, i) => (params[inp.name] = plain(parsed.args[i])));
-      simulate.push({
-        contract: "FamFi",
-        event: parsed.name,
-        params,
-        logIndex: log.index,
-        block: { number: log.blockNumber, timestamp: await tsOf(log.blockNumber), hash: log.blockHash },
-        transaction: { hash: log.transactionHash },
-      });
+    for (let from = nextBlock; from <= head; from += LOG_RANGE) {
+      const to = Math.min(head, from + LOG_RANGE - 1);
+      const logs = await provider.getLogs({ address: FAMFI, fromBlock: from, toBlock: to });
+      for (const log of logs) {
+        const parsed = iface.parseLog(log);
+        if (!parsed) continue;
+        const params: Record<string, any> = {};
+        parsed.fragment.inputs.forEach((inp, i) => (params[inp.name] = plain(parsed.args[i])));
+        simulate.push({
+          contract: "FamFi",
+          event: parsed.name,
+          params,
+          logIndex: log.index,
+          block: { number: log.blockNumber, timestamp: await tsOf(log.blockNumber), hash: log.blockHash },
+          transaction: { hash: log.transactionHash },
+        });
+      }
     }
     if (simulate.length) {
       await indexer.process({ chains: { 10143: { startBlock: nextBlock, endBlock: head, simulate } } });
       console.log(`indexed ${simulate.length} events up to block ${head}`);
     }
     nextBlock = head + 1;
+    lastSync = Date.now();
   } catch (e: any) {
     console.error("sync error:", e?.message || e);
   } finally {
@@ -161,7 +168,7 @@ const server = http.createServer(async (req, res) => {
     for await (const c of req) body += c;
     try {
       const { query, variables } = JSON.parse(body);
-      await sync(); // read-your-writes: catch up to the chain head before answering
+      if (Date.now() - lastSync > 800) await sync(); // read-your-writes, without hammering a public RPC
       const data = await runQuery(query, variables);
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data }));
     } catch (e: any) {
@@ -173,5 +180,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 await sync();
-setInterval(sync, 700);
+setInterval(sync, POLL_MS);
 server.listen(PORT, () => console.log(`dev indexer on :${PORT}/v1/graphql (reading ${FAMFI} via ${RPC})`));

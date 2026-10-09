@@ -859,6 +859,38 @@
         "type": "uint256"
       },
       {
+        "components": [
+          {
+            "internalType": "uint128[4]",
+            "name": "levelLimits",
+            "type": "uint128[4]"
+          },
+          {
+            "internalType": "uint128",
+            "name": "newPayeeThreshold",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "firstDayCap",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint32",
+            "name": "holdSeconds",
+            "type": "uint32"
+          },
+          {
+            "internalType": "bool",
+            "name": "strictHolds",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct FamFi.Terms",
+        "name": "terms",
+        "type": "tuple"
+      },
+      {
         "internalType": "bytes",
         "name": "parentSig",
         "type": "bytes"

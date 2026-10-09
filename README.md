@@ -10,7 +10,7 @@ Fam-Fi is a family money app built on [Monad](https://monad.xyz) testnet for the
 
 | Feature | Where it lives | Verified by |
 |---|---|---|
-| Fam-ID registry, parent-invited teens | `contracts/src/FamFi.sol` | 24 Hardhat tests |
+| Fam-ID registry, parent-invited teens. The parent chooses every starting limit and signs it into the invite; the contract has no built-in numbers | `contracts/src/FamFi.sol` | 26 Hardhat tests |
 | Streaming allowance (accrues by the second, belongs to the teen) | contract | tests |
 | Daily limits by level, over-limit holds the parent approves | contract | tests |
 | Scam Shield: a large first payment to a new payee, or a large payment in a teen's first 24 hours, is held for a few minutes and the parent is alerted | contract | tests |
@@ -19,7 +19,7 @@ Fam-Fi is a family money app built on [Monad](https://monad.xyz) testnet for the
 | Splits (a friend pays a share) and money requests | contract | tests, UI run |
 | Gasless: users sign, a relayer pays gas | `contracts/src/FamFiForwarder.sol`, `relayer/` | relayer smoke test with zero-gas wallets |
 | Plain-language timeline of everything | `indexer/` (Envio) | indexer test replaying a family story |
-| Web app: parent, teen, relative, friend screens + Judge Mode | `app/` | 23-step browser walkthrough |
+| Web app: parent, teen, relative, friend screens (Judge Mode only in the local demo) | `app/` | 27-step browser walkthrough + a 15-step nothing-is-pre-made run |
 
 **What "held" means, honestly:** Scam Shield is a delay and an alert, not a guarantee. A parent who does nothing lets the teen release the payment after the hold, unless "strict holds" is turned on. A patient scammer who first receives a small payment becomes a known payee. There is no withdrawal function in this build, so money can only move between Fam-IDs.
 
@@ -34,11 +34,14 @@ Fam-Fi is a family money app built on [Monad](https://monad.xyz) testnet for the
 * **`contracts/`**: one `FamFi` contract with no admin key, holding an internal USDC ledger, plus a permissionless ERC-2771 forwarder. Hardhat project.
 * **`relayer/`**: `POST /relay` verifies and simulates a signed request, returns a readable reason if it would fail, then submits it. `POST /faucet` credits a Fam-ID from a treasury wallet. `GET /health`.
 * **`indexer/`**: Envio HyperIndex config, schema and handlers. `dev-server.ts` replays real chain events through the same handlers and serves the same Hasura-style GraphQL, for local demos without Docker.
+* **`scripts/`**: `new-wallets`, `deploy-testnet`, `start-testnet` for real mode; `local-stack` for the throwaway local demo.
 * **`app/`**: Next.js app. Real login is Dynamic's headless SDK: an email code creates a wallet for that email (same email, same wallet), then an optional passkey (Face ID / fingerprint) for next time. Judge Mode uses public demo wallets.
 * **`e2e/`**: a Playwright walkthrough driving the real UI in four browser contexts.
 * **`abi/`**: ABIs shared by all of the above.
 
-## Run everything locally (no accounts, no keys)
+## Two ways to run it
+
+**Real mode (your wallets, Circle's real testnet USDC, Monad testnet).** Nothing is mocked or pre-filled: every person is their own wallet, every number a parent sets is the number their teen gets, and the contract has no built-in limits.
 
 ```bash
 (cd contracts && npm install --legacy-peer-deps)
@@ -46,37 +49,51 @@ Fam-Fi is a family money app built on [Monad](https://monad.xyz) testnet for the
 (cd indexer   && npm install --legacy-peer-deps)
 (cd app       && npm install --legacy-peer-deps)
 
-node scripts/local-stack.mjs --app     # chain, contracts, relayer, indexer, demo family, web app
-# open http://localhost:3000 and pick a Judge Mode person
-
-# optional: also turn on real email sign-in (Dynamic) in the same local app
-NEXT_PUBLIC_DYNAMIC_ENV_ID=<your environment id> node scripts/local-stack.mjs --app
+node scripts/new-wallets.mjs           # creates deployer + relayer + treasury; prints their addresses
+#  -> fund them: https://faucet.monad.xyz (MON, all three) and https://faucet.circle.com (USDC, Monad Testnet, treasury)
+node scripts/deploy-testnet.mjs --dynamic-env <your Dynamic environment id>   # checks balances, deploys, writes all config
+node scripts/start-testnet.mjs         # relayer + indexer + app; open http://localhost:3000
 ```
+
+**Local demo (no accounts, no keys, a throwaway chain with mock USDC and a ready-made family).** For development and screenshots only:
+
+```bash
+node scripts/local-stack.mjs --app     # then open http://localhost:3000 and pick a Judge Mode person
+NEXT_PUBLIC_DYNAMIC_ENV_ID=<id> node scripts/local-stack.mjs --app   # same, with real email sign-in on top
+```
+
+Judge Mode (ready-made people) only exists when `NEXT_PUBLIC_JUDGE_MODE=1`, which only the local demo sets.
 
 Run the checks:
 
 ```bash
-(cd contracts && npx hardhat test)                 # contract tests
+(cd contracts && npx hardhat test)                 # 26 contract tests
 (cd indexer   && npm test)                         # handler tests via Envio's TestIndexer
-(cd e2e && npm install --legacy-peer-deps && npm run walkthrough)   # full UI run (needs the stack above running)
+(cd e2e && npm install --legacy-peer-deps)
+(cd e2e && npm run walkthrough)                    # full UI story against the local demo
+(cd e2e && node real-path.mjs)                     # the nothing-is-pre-made path against real mode
 ```
 
 ## Deploy to Monad testnet (10143)
 
-1. Get test MON for a **deployer**, a **relayer** and a **treasury** wallet from https://faucet.monad.xyz. Collect test USDC into the treasury from https://faucet.circle.com (choose USDC, then Monad Testnet; no account needed; 20 USDC per request, one request per address every 2 hours at the time of writing).
-2. `cd contracts && cp .env.example .env`, set `DEPLOYER_KEY`, then `npm run deploy:monad`. Addresses are written to `deployments/monad-testnet.json`.
-3. Run the relayer (`relayer/.env.example` lists every variable). It needs MON for gas. It approves the treasury's USDC to FamFi on start.
-4. Deploy the indexer to Envio: set `ENVIO_FAMFI_ADDRESS`, set `start_block` in `indexer/config.yaml` to the deploy block, `npx envio codegen`, then deploy. Point `NEXT_PUBLIC_ENVIO_URL` (and `NEXT_PUBLIC_ENVIO_WS` for live subscriptions) at it.
-5. Create a Dynamic **sandbox** environment at https://console.dynamic.xyz, then configure it with Dynamic's CLI:
-   ```sh
-   npm install -g @dynamic-labs/dynamic-console-cli
-   dyn auth login
-   dyn status                       # confirm the sandbox environment
-   dyn settings set sdk.embeddedWallets.automaticEmbeddedWalletCreation true
-   dyn settings list | grep -iE "email|passkey|chain|network|origin|cors"   # find the keys for the rest
-   ```
-   In the dashboard (or via those settings), also enable **email sign-in**, **embedded wallets**, **passkeys**, the **EVM** chain, and add `http://localhost:3000` and your site's address to the **allowed origins**. Copy the **Environment ID** into `NEXT_PUBLIC_DYNAMIC_ENV_ID`, then deploy `app/` (see `app/.env.example`).
-6. Seed the Judge Mode family: `cd relayer && RELAYER_URL=... FAMFI_ADDRESS=... FORWARDER_ADDRESS=... RPC_URL=... npx tsx scripts/seed-demo.ts`.
+Use the three scripts above. They do the following for you:
+1. `new-wallets.mjs` saves three throwaway keys to `.wallets.json` (git-ignored) and prints only addresses.
+2. `deploy-testnet.mjs` refuses to continue until each wallet has MON and the treasury has USDC (it tells you exactly which), deploys with Circle's USDC address (`0x534b…43A3`), writes `relayer/.env`, `app/.env.local`, `indexer/.env`, and sets the indexer's start block.
+3. `start-testnet.mjs` starts the relayer, indexer and app together.
+
+Test USDC: https://faucet.circle.com (choose USDC, then Monad Testnet; no account; 20 USDC per request, one request per address every 2 hours at the time of writing).
+
+Dynamic (real email sign-in): create a **sandbox** environment at https://console.dynamic.xyz, then
+```sh
+npm install -g @dynamic-labs/dynamic-console-cli
+dyn auth login
+dyn status                       # confirm the sandbox environment
+dyn settings set sdk.embeddedWallets.automaticEmbeddedWalletCreation true
+dyn settings list | grep -iE "email|passkey|chain|network|origin|cors"   # find the keys for the rest
+```
+Also enable **email sign-in**, **embedded wallets**, **passkeys**, the **EVM** chain, and add your site's address to the **allowed origins**. Pass the Environment ID to `deploy-testnet.mjs --dynamic-env`.
+
+For the hosted Envio indexer instead of the bundled one, set `ENVIO_FAMFI_ADDRESS`, run `npx envio codegen` in `indexer/` and deploy; point `NEXT_PUBLIC_ENVIO_URL` (and `NEXT_PUBLIC_ENVIO_WS`) at it. The bundled `dev-server.ts` replays real chain events through the same handlers and is enough for a single-machine demo.
 
 ## Honest status: what is and is not verified
 
@@ -86,7 +103,7 @@ Verified here, on a local chain: everything in the table above.
 * Dynamic email + passkey sign-in and signing typed data (`app/src/lib/dynamic-shell.tsx`). It uses Dynamic's recommended headless SDK (`@dynamic-labs-sdk/*`), is written from Dynamic's docs, type-checks against the installed package, and a browser test (`e2e/dynamic-ui.mjs`) proves the form renders, validates and fails in plain words. A real login has not been run because it needs a real environment ID.
 * Envio hosted deployment and live GraphQL subscriptions (the handlers and queries are tested through Envio's test indexer and the dev server; the hosted service and the WebSocket path are not).
 * Circle's testnet USDC faucet limits for the treasury.
-* Judge Mode uses public, valueless demo keys derived from names, not Dynamic accounts.
+* Judge Mode (local demo only) uses public, valueless demo keys derived from names, not Dynamic accounts.
 
 Other limits: the contract has no admin key, so a bug cannot be patched after deployment. USDC itself can be frozen by Circle. A lost parent login has no recovery. One parent per family. Not legal or financial advice: stablecoin and minor-account rules differ by country and a real launch would need review.
 

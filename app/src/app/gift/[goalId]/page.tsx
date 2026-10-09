@@ -111,7 +111,7 @@ function Give({ goal, gifts, famId }: { goal: any; gifts: any[]; famId: string }
         <div className="mt-4 flex flex-wrap gap-2">
           {short && (
             <Button variant="soft" busy={busy === "add"} onClick={() => run("add", async () => { const r = await faucet(famId); await refreshBalance(); return r; }, (r) => `Added ${r.amount} test dollars`)}>
-              + Add test money
+              + Add test USDC
             </Button>
           )}
           <Button busy={busy === "lock"} disabled={short || !amt} onClick={lock}>Lock my gift</Button>

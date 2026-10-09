@@ -11,6 +11,17 @@ export const demoKey = (name: string) => ethers.id(`famfi-demo-${name}`);
 export const fid = (s: string) => ethers.encodeBytes32String(s);
 export const U = (n: number) => BigInt(Math.round(n * 1e6));
 
+/** The starting rules a parent signs into an invite. Nothing is built into the contract. */
+export type Terms = {
+  levelLimits: bigint[];
+  newPayeeThreshold: bigint;
+  firstDayCap: bigint;
+  holdSeconds: number;
+  strictHolds: boolean;
+};
+/** Used only by local demo seeding and tests. Real parents choose their own in the app. */
+export const SEED_TERMS: Terms = { levelLimits: [U(5), U(8), U(12), U(20)], newPayeeThreshold: U(3), firstDayCap: U(2), holdSeconds: 600, strictHolds: false };
+
 export function makeClient(o: { rpcUrl: string; relayerUrl: string; famfi: string; forwarder: string }) {
   const provider = new ethers.JsonRpcProvider(o.rpcUrl, undefined, { staticNetwork: true });
   const fam = new ethers.Contract(o.famfi, FAMFI_ABI, provider);
@@ -43,12 +54,18 @@ export function makeClient(o: { rpcUrl: string; relayerUrl: string; famfi: strin
     return r.body.hash as string;
   }
 
-  async function inviteSignature(parent: ethers.Wallet, familyId: number, inviteId: string, deadline: number) {
+  async function inviteSignature(parent: ethers.Wallet, familyId: number, inviteId: string, deadline: number, terms: Terms) {
     const net = await provider.getNetwork();
     return parent.signTypedData(
       { name: "FamFi", version: "1", chainId: net.chainId, verifyingContract: o.famfi },
-      { Invite: [{ name: "familyId", type: "uint32" }, { name: "inviteId", type: "bytes32" }, { name: "deadline", type: "uint256" }] },
-      { familyId, inviteId, deadline },
+      {
+        Invite: [
+          { name: "familyId", type: "uint32" }, { name: "inviteId", type: "bytes32" }, { name: "deadline", type: "uint256" },
+          { name: "levelLimits", type: "uint128[4]" }, { name: "newPayeeThreshold", type: "uint128" }, { name: "firstDayCap", type: "uint128" },
+          { name: "holdSeconds", type: "uint32" }, { name: "strictHolds", type: "bool" },
+        ],
+      },
+      { familyId, inviteId, deadline, ...terms },
     );
   }
 

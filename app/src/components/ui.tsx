@@ -175,7 +175,7 @@ export function SignIn({ title, blurb, personas }: { title: string; blurb: strin
           </Button>
         )}
       </div>
-      {personas && personas.length > 0 && (
+      {cfg.judgeMode && personas && personas.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4">
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Judge Mode: try a ready-made account</p>
           <div className="flex flex-wrap justify-center gap-2">

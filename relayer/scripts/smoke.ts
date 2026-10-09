@@ -10,6 +10,7 @@ const RPC = process.env.SMOKE_RPC || "http://127.0.0.1:8545";
 const art = (p: string) => JSON.parse(readFileSync(new URL(`../../contracts/artifacts/src/${p}`, import.meta.url), "utf8"));
 const U = (n: number) => BigInt(Math.round(n * 1e6));
 const fid = (s: string) => ethers.encodeBytes32String(s);
+const TERMS = { levelLimits: [U(5), U(8), U(12), U(20)], newPayeeThreshold: U(3), firstDayCap: U(2), holdSeconds: 600, strictHolds: false };
 
 let failed = 0;
 const check = (name: string, ok: boolean, extra = "") => {
@@ -104,10 +105,16 @@ async function main() {
   const inviteDeadline = Math.floor(Date.now() / 1000) + 86400;
   const inviteSig = await parent.signTypedData(
     { name: "FamFi", version: "1", chainId: net.chainId, verifyingContract: famAddr },
-    { Invite: [{ name: "familyId", type: "uint32" }, { name: "inviteId", type: "bytes32" }, { name: "deadline", type: "uint256" }] },
-    { familyId: 1, inviteId, deadline: inviteDeadline },
+    {
+      Invite: [
+        { name: "familyId", type: "uint32" }, { name: "inviteId", type: "bytes32" }, { name: "deadline", type: "uint256" },
+        { name: "levelLimits", type: "uint128[4]" }, { name: "newPayeeThreshold", type: "uint128" }, { name: "firstDayCap", type: "uint128" },
+        { name: "holdSeconds", type: "uint32" }, { name: "strictHolds", type: "bool" },
+      ],
+    },
+    { familyId: 1, inviteId, deadline: inviteDeadline, ...TERMS },
   );
-  r = await call(teen, "acceptInvite", [1, inviteId, inviteDeadline, inviteSig, fid("alex")]);
+  r = await call(teen, "acceptInvite", [1, inviteId, inviteDeadline, TERMS, inviteSig, fid("alex")]);
   check("teen joins with parent invite (relayed)", r.status === 200, r.body.error);
 
   // faucet: treasury credits ledger balances

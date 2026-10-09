@@ -14,7 +14,17 @@ const PStatus = { NONE: 0, OPEN: 1, EXECUTED: 2, REJECTED: 3, CANCELLED: 4 };
 const GStatus = { NONE: 0, PROPOSED: 1, ACTIVE: 2, COMPLETE: 3, CLOSED: 4 };
 const ReqStatus = { NONE: 0, OPEN: 1, PAID: 2 };
 
-async function inviteSig(fam: any, parent: HardhatEthersSigner, familyId: number, inviteId: string, deadline: number) {
+type Terms = {
+  levelLimits: bigint[];
+  newPayeeThreshold: bigint;
+  firstDayCap: bigint;
+  holdSeconds: number;
+  strictHolds: boolean;
+};
+// What a parent might choose. The contract has no built-in numbers; every invite carries its own.
+const TERMS: Terms = { levelLimits: [U(5), U(8), U(12), U(20)], newPayeeThreshold: U(3), firstDayCap: U(2), holdSeconds: 600, strictHolds: false };
+
+async function inviteSig(fam: any, parent: HardhatEthersSigner, familyId: number, inviteId: string, deadline: number, terms: Terms = TERMS) {
   const net = await ethers.provider.getNetwork();
   const domain = { name: "FamFi", version: "1", chainId: net.chainId, verifyingContract: await fam.getAddress() };
   const types = {
@@ -22,9 +32,14 @@ async function inviteSig(fam: any, parent: HardhatEthersSigner, familyId: number
       { name: "familyId", type: "uint32" },
       { name: "inviteId", type: "bytes32" },
       { name: "deadline", type: "uint256" },
+      { name: "levelLimits", type: "uint128[4]" },
+      { name: "newPayeeThreshold", type: "uint128" },
+      { name: "firstDayCap", type: "uint128" },
+      { name: "holdSeconds", type: "uint32" },
+      { name: "strictHolds", type: "bool" },
     ],
   };
-  return parent.signTypedData(domain, types, { familyId, inviteId, deadline });
+  return parent.signTypedData(domain, types, { familyId, inviteId, deadline, ...terms });
 }
 
 async function deployBase() {
@@ -45,7 +60,7 @@ async function deployBase() {
   for (const [i, [who, name]] of ([[teen, "alex"], [friend, "riya"]] as [HardhatEthersSigner, string][]).entries()) {
     const inviteId = ethers.id(`invite-${i}`);
     const sig = await inviteSig(fam, parent, 1, inviteId, deadline);
-    await fam.connect(who).acceptInvite(1, inviteId, deadline, sig, fid(name));
+    await fam.connect(who).acceptInvite(1, inviteId, deadline, TERMS, sig, fid(name));
   }
 
   await fam.connect(treasury).depositFor(parent.address, U(200));
@@ -116,15 +131,45 @@ describe("FamFi: registration and invites", () => {
     const deadline = (await time.latest()) + DAY;
     const id1 = ethers.id("x1");
     const badSig = await inviteSig(fam, sponsor, 1, id1, deadline);
-    await expect(fam.connect(stranger).acceptInvite(1, id1, deadline, badSig, fid("kid"))).to.be.revertedWith("bad invite sig");
+    await expect(fam.connect(stranger).acceptInvite(1, id1, deadline, TERMS, badSig, fid("kid"))).to.be.revertedWith("bad invite sig");
     const sig = await inviteSig(fam, parent, 1, id1, deadline);
-    await fam.connect(stranger).acceptInvite(1, id1, deadline, sig, fid("kid"));
+    await fam.connect(stranger).acceptInvite(1, id1, deadline, TERMS, sig, fid("kid"));
     expect((await fam.accounts(stranger.address)).role).to.equal(Role.TEEN);
-    await expect(fam.connect(sponsor).acceptInvite(1, id1, deadline, sig, fid("kid2"))).to.be.revertedWith("invite used");
+    await expect(fam.connect(sponsor).acceptInvite(1, id1, deadline, TERMS, sig, fid("kid2"))).to.be.revertedWith("invite used");
     const id2 = ethers.id("x2");
     const sig2 = await inviteSig(fam, parent, 1, id2, deadline);
     await time.increase(2 * DAY);
-    await expect(fam.connect(sponsor).acceptInvite(1, id2, deadline, sig2, fid("kid3"))).to.be.revertedWith("invite expired");
+    await expect(fam.connect(sponsor).acceptInvite(1, id2, deadline, TERMS, sig2, fid("kid3"))).to.be.revertedWith("invite expired");
+  });
+
+  it("the teen gets exactly the numbers the parent signed, and nothing is built in", async () => {
+    const { fam, parent, stranger } = await loadFixture(deployBase);
+    const mine: Terms = { levelLimits: [U(1.5), U(2), U(2), U(9)], newPayeeThreshold: U(0.75), firstDayCap: U(1), holdSeconds: 90, strictHolds: true };
+    const deadline = (await time.latest()) + DAY;
+    const inviteId = ethers.id("custom");
+    const sig = await inviteSig(fam, parent, 1, inviteId, deadline, mine);
+    await fam.connect(stranger).acceptInvite(1, inviteId, deadline, mine, sig, fid("kid"));
+    const c = await fam.getTeenCfg(stranger.address);
+    expect(Array.from(c.levelLimits)).to.deep.equal(mine.levelLimits);
+    expect(c.newPayeeThreshold).to.equal(mine.newPayeeThreshold);
+    expect(c.firstDayCap).to.equal(mine.firstDayCap);
+    expect(c.holdSeconds).to.equal(90n);
+    expect(c.strictHolds).to.equal(true);
+  });
+
+  it("a teen cannot change the parent's numbers; zero or out-of-order limits are refused", async () => {
+    const { fam, parent, stranger } = await loadFixture(deployBase);
+    const deadline = (await time.latest()) + DAY;
+    const inviteId = ethers.id("tamper");
+    const sig = await inviteSig(fam, parent, 1, inviteId, deadline, TERMS);
+    const greedy: Terms = { ...TERMS, levelLimits: [U(500), U(800), U(1200), U(2000)] };
+    await expect(fam.connect(stranger).acceptInvite(1, inviteId, deadline, greedy, sig, fid("kid"))).to.be.revertedWith("bad invite sig");
+    const zero: Terms = { ...TERMS, levelLimits: [0n, U(1), U(2), U(3)] };
+    await expect(fam.connect(stranger).acceptInvite(1, inviteId, deadline, zero, sig, fid("kid"))).to.be.revertedWith("set a daily limit");
+    const down: Terms = { ...TERMS, levelLimits: [U(5), U(3), U(8), U(9)] };
+    await expect(fam.connect(stranger).acceptInvite(1, inviteId, deadline, down, sig, fid("kid"))).to.be.revertedWith("limits not ascending");
+    const slow: Terms = { ...TERMS, holdSeconds: 3 * DAY };
+    await expect(fam.connect(stranger).acceptInvite(1, inviteId, deadline, slow, sig, fid("kid"))).to.be.revertedWith("hold too long");
   });
 
   it("depositFor needs a known user", async () => {

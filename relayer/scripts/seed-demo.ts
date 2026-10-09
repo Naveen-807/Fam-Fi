@@ -5,7 +5,7 @@
  *   FAMFI_ADDRESS=0x.. FORWARDER_ADDRESS=0x.. RELAYER_URL=http://127.0.0.1:8787 RPC_URL=... npx tsx scripts/seed-demo.ts
  */
 import { ethers } from "ethers";
-import { demoKey, fid, makeClient, U } from "../src/client.js";
+import { demoKey, fid, makeClient, SEED_TERMS, U } from "../src/client.js";
 
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`Missing env ${k}`); return v; };
 const c = makeClient({
@@ -30,8 +30,8 @@ async function main() {
     if ((await roleOf(w)) !== 0) continue;
     const inviteId = ethers.id(`seed-invite-${name}-${Date.now()}`);
     const deadline = Math.floor(Date.now() / 1000) + 86400;
-    const sig = await c.inviteSignature(priya, familyId, inviteId, deadline);
-    await c.send(w, "acceptInvite", [familyId, inviteId, deadline, sig, fid(name)]);
+    const sig = await c.inviteSignature(priya, familyId, inviteId, deadline, SEED_TERMS);
+    await c.send(w, "acceptInvite", [familyId, inviteId, deadline, SEED_TERMS, sig, fid(name)]);
     step(`${name} joined as a teen`);
   }
   if ((await roleOf(aunt)) === 0) { await c.send(aunt, "register", [fid("aunt"), 3]); step("aunt registered"); }

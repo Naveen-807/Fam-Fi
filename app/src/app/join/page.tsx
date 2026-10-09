@@ -7,6 +7,7 @@ import { useFamIdCheck } from "@/components/onboard";
 import { famIdBytes, ROLE } from "@/lib/chain";
 import { relay } from "@/lib/relay";
 import { useAct, useMe } from "@/lib/hooks";
+import { decodeTerms, describeTerms } from "@/lib/terms";
 import { useWallet } from "@/lib/wallet";
 
 export default function JoinPage() {
@@ -30,7 +31,8 @@ function Join() {
   const inviteId = q.get("i") || "";
   const deadline = Number(q.get("d"));
   const sig = q.get("s") || "";
-  const valid = Number.isInteger(f) && f > 0 && /^0x[0-9a-fA-F]{64}$/.test(inviteId) && deadline > 0 && /^0x[0-9a-fA-F]+$/.test(sig);
+  const terms = decodeTerms(q.get("t"));
+  const valid = Number.isInteger(f) && f > 0 && /^0x[0-9a-fA-F]{64}$/.test(inviteId) && deadline > 0 && /^0x[0-9a-fA-F]+$/.test(sig) && !!terms;
 
   if (!valid)
     return (
@@ -59,6 +61,10 @@ function Join() {
       <Card className="mx-auto mt-6 max-w-md">
         <h1 className="text-2xl font-bold">You&apos;re invited 🎉</h1>
         <p className="mt-1 text-sm text-slate-600">Pick a Fam-ID. Friends will use it to pay you, and you won&apos;t need to share any long codes.</p>
+        <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+          <p className="mb-1 font-semibold text-ink">The rules your parent chose</p>
+          <ul className="list-disc space-y-1 pl-5">{terms && describeTerms(terms).map((t) => <li key={t}>{t}</li>)}</ul>
+        </div>
         <div className="mt-5 space-y-4">
           <Field label="Your Fam-ID" hint={{ empty: "3–20 letters, numbers or _", bad: "Use 3–20 lowercase letters, numbers or _", checking: "Checking…", free: "Available ✓", taken: "Already taken" }[state]}>
             <Input value={name} onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))} placeholder="e.g. alex" maxLength={20} autoFocus aria-label="Fam-ID" />
@@ -68,7 +74,7 @@ function Join() {
             disabled={state !== "free"}
             busy={busy === "join"}
             onClick={async () => {
-              const ok = await run("join", () => relay(signer, "acceptInvite", [f, inviteId, BigInt(deadline), sig, famIdBytes(name)]), `Welcome, @${name}!`);
+              const ok = await run("join", () => relay(signer, "acceptInvite", [f, inviteId, BigInt(deadline), terms, sig, famIdBytes(name)]), `Welcome, @${name}!`);
               if (ok) router.push("/teen");
             }}
           >

@@ -36,7 +36,7 @@ const waitPort = (port) => new Promise((res, rej) => {
 const stop = () => { children.forEach((c) => c.kill("SIGTERM")); process.exit(0); };
 process.on("SIGINT", stop); process.on("SIGTERM", stop);
 
-run("chain", "npx", ["hardhat", "node", "--hostname", "127.0.0.1"], "contracts");
+run("chain", "npx", ["hardhat", "node", "--hostname", "127.0.0.1"], "contracts", { HARDHAT_INTERVAL: "1000" });
 await waitPort(8545);
 runOnce("deploy", "npx", ["hardhat", "run", "scripts/deploy-local.ts", "--network", "localhost"], "contracts");
 const st = JSON.parse(readFileSync(path.join(root, ".local/stack.json"), "utf8"));
@@ -59,6 +59,8 @@ const appEnv = [
   `NEXT_PUBLIC_FAMFI=${st.famFi}`, `NEXT_PUBLIC_FORWARDER=${st.forwarder}`, `NEXT_PUBLIC_USDC=${st.usdc}`,
   `NEXT_PUBLIC_RELAYER_URL=http://127.0.0.1:8787`, `NEXT_PUBLIC_ENVIO_URL=http://127.0.0.1:8080/v1/graphql`,
   `NEXT_PUBLIC_EXPLORER_TX=`, `NEXT_PUBLIC_NETWORK_LABEL=Local demo chain`,
+  `NEXT_PUBLIC_JUDGE_MODE=1`, // ready-made demo people are for local demos only
+
   // Optional: turn on real email sign-in against a Dynamic environment, e.g.
   //   NEXT_PUBLIC_DYNAMIC_ENV_ID=<your id> node scripts/local-stack.mjs --app
   ...(process.env.NEXT_PUBLIC_DYNAMIC_ENV_ID ? [`NEXT_PUBLIC_DYNAMIC_ENV_ID=${process.env.NEXT_PUBLIC_DYNAMIC_ENV_ID}`] : []),

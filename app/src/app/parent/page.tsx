@@ -11,6 +11,7 @@ import { useWallet } from "@/lib/wallet";
 import { big, cap, fmt, parseAmount } from "@/lib/format";
 import { cfg } from "@/lib/config";
 import { QR } from "@/components/qr";
+import { encodeTerms, Terms } from "@/lib/terms";
 
 export default function ParentPage() {
   const { signer } = useWallet();
@@ -105,7 +106,7 @@ function Dashboard({ acct }: { acct: Account }) {
               run("add", async () => { const r = await faucet(acct.famId); await refreshBalance(); return r; }, (r) => `Added ${r.amount} test dollars`)
             }
           >
-            + Add test money
+            + Add test USDC
           </Button>
         </div>
         <p className="mt-3 text-xs text-slate-400">Test dollars have no real value. This is a prototype on a test network.</p>
@@ -211,8 +212,8 @@ function TeenPanel({ teen, parentBalance, onChange }: { teen: { id: string; famI
   const { view, refresh } = useTeenView(teen.id);
   const { busy, run } = useAct();
   const toast = useToast();
-  const [budget, setBudget] = useState("3");
-  const [perHour, setPerHour] = useState("1");
+  const [budget, setBudget] = useState("");
+  const [perHour, setPerHour] = useState("");
   const [tx, setTx] = useState<TxResult | null>(null);
   const [limits, setLimits] = useState<string[] | null>(null);
   const now = useNow(1000);
@@ -229,8 +230,8 @@ function TeenPanel({ teen, parentBalance, onChange }: { teen: { id: string; famI
   async function fund() {
     const b = parseAmount(budget);
     const h = parseAmount(perHour);
-    if (!b || !h) return toast.err("Enter an amount for the budget and the hourly rate.");
-    if (b > parentBalance) return toast.err("You don't have that much. Add test money first.");
+    if (!b || !h) return toast.err("Choose how much to set aside and how much flows each hour.");
+    if (b > parentBalance) return toast.err("You don't have that much. Add test USDC first.");
     const rate = h / 3600n || 1n;
     const r = await run("fund", () => relay(signer!, "fundStream", [teen.id, b, rate]), `${cap(teen.famId)}'s allowance is flowing`);
     if (r) { setTx(r); onChange(); void refresh(); }
@@ -282,8 +283,8 @@ function TeenPanel({ teen, parentBalance, onChange }: { teen: { id: string; famI
       <details className="mt-4 rounded-xl border border-slate-100 p-3" open={view.streamRemaining === 0n}>
         <summary className="cursor-pointer text-sm font-semibold">Allowance {view.streamRemaining > 0n && <span className="num font-normal text-slate-500">· {fmt(view.streamRemaining)} still to flow</span>}</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <Field label="Set aside (total)"><Input inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} aria-label="Allowance budget" /></Field>
-          <Field label="Flow per hour"><Input inputMode="decimal" value={perHour} onChange={(e) => setPerHour(e.target.value)} aria-label="Allowance per hour" /></Field>
+          <Field label="Set aside (total)"><Input inputMode="decimal" value={budget} placeholder="e.g. 20" onChange={(e) => setBudget(e.target.value)} aria-label="Allowance budget" /></Field>
+          <Field label="Flow per hour"><Input inputMode="decimal" value={perHour} placeholder="e.g. 0.5" onChange={(e) => setPerHour(e.target.value)} aria-label="Allowance per hour" /></Field>
         </div>
         <Button className="mt-3" busy={busy === "fund"} onClick={fund}>Start allowance</Button>
         <Proof tx={tx} label="Allowance started" />
@@ -312,23 +313,67 @@ function InviteCard({ familyId }: { familyId: number }) {
   const { busy, run } = useAct();
   const toast = useToast();
   const [link, setLink] = useState("");
+  // Every field starts empty on purpose: the parent chooses each number. The placeholders are only examples.
+  const [limits, setLimits] = useState(["", "", "", ""]);
+  const [threshold, setThreshold] = useState("");
+  const [firstDay, setFirstDay] = useState("");
+  const [holdMin, setHoldMin] = useState("");
+  const [strict, setStrict] = useState(false);
 
   async function make() {
-    const inv = await run("inv", () => signInvite(signer!, familyId));
+    const lim = limits.map((x) => parseAmount(x));
+    if (lim.some((x) => x === null)) return toast.err("Choose a daily limit for each of the four levels.");
+    const L = lim as bigint[];
+    for (let i = 1; i < 4; i++) if (L[i] < L[i - 1]) return toast.err("Each level's limit should be the same or higher than the one before.");
+    const th = parseAmount(threshold);
+    const fd = parseAmount(firstDay);
+    if (!th || !fd) return toast.err("Fill in both safety amounts.");
+    const mins = Number(holdMin);
+    if (!Number.isFinite(mins) || mins < 0 || mins > 1440) return toast.err("How long should a hold last? Pick 0 to 1440 minutes.");
+
+    const terms: Terms = { levelLimits: L, newPayeeThreshold: th, firstDayCap: fd, holdSeconds: Math.round(mins * 60), strictHolds: strict };
+    const inv = await run("inv", () => signInvite(signer!, familyId, terms));
     if (!inv) return;
     const u = new URL("/join", window.location.origin);
     u.searchParams.set("f", String(inv.familyId));
     u.searchParams.set("i", inv.inviteId);
     u.searchParams.set("d", String(inv.deadline));
+    u.searchParams.set("t", encodeTerms(terms));
     u.searchParams.set("s", inv.sig);
     setLink(u.toString());
   }
+
   return (
     <Card title="Invite a teen">
-      <p className="text-sm text-slate-600">Create a one-time link and send it to your teen. It works for 7 days, and the first person to open it joins your family.</p>
-      <Button className="mt-3" variant="soft" busy={busy === "inv"} onClick={make}>Create invite link</Button>
+      <p className="text-sm text-slate-600">
+        Choose the rules your teen starts with. They&apos;re signed into the link, so your teen can&apos;t change them, and you can adjust them any time later.
+      </p>
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {limits.map((v, i) => (
+          <Field key={i} label={i === 0 ? "Daily limit now" : `At level ${i + 1}`}>
+            <Input inputMode="decimal" value={v} placeholder={["5", "8", "12", "20"][i]} onChange={(e) => setLimits(limits.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Level ${i + 1} daily limit`} />
+          </Field>
+        ))}
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <Field label="Hold a first payment to someone new above">
+          <Input inputMode="decimal" value={threshold} placeholder="3" onChange={(e) => setThreshold(e.target.value)} aria-label="New payee hold amount" />
+        </Field>
+        <Field label="In the first 24 hours, hold payments above">
+          <Input inputMode="decimal" value={firstDay} placeholder="2" onChange={(e) => setFirstDay(e.target.value)} aria-label="First day hold amount" />
+        </Field>
+        <Field label="A hold lasts (minutes)">
+          <Input inputMode="numeric" value={holdMin} placeholder="10" onChange={(e) => setHoldMin(e.target.value)} aria-label="Hold minutes" />
+        </Field>
+      </div>
+      <label className="mt-3 flex items-start gap-2 text-sm text-slate-600">
+        <input type="checkbox" checked={strict} onChange={(e) => setStrict(e.target.checked)} className="mt-0.5" aria-label="Parent must approve every hold" />
+        <span>I must approve every held payment. (If off, your teen can release one after the wait if you haven&apos;t answered.)</span>
+      </label>
+      <Button className="mt-4" variant="soft" busy={busy === "inv"} onClick={make}>Create invite link</Button>
       {link && (
         <div className="pop mt-3 space-y-3">
+          <p className="text-xs text-slate-500">Works for 7 days. The first person to open it joins your family, so send it only to your teen.</p>
           <Input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Invite link" />
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="ghost" onClick={async () => { await navigator.clipboard?.writeText(link); toast.ok("Link copied"); }}>Copy link</Button>

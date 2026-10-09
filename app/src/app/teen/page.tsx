@@ -128,7 +128,7 @@ function AddMoney({ famId, onDone }: { famId: string; onDone: () => void }) {
         disabled={busy === "add"}
         onClick={() => run("add", async () => { const r = await faucet(famId); onDone(); return r; }, (r) => `Added ${r.amount} test dollars`)}
       >
-        {busy === "add" ? "Adding…" : "+ Add test money (demo only)"}
+        {busy === "add" ? "Adding…" : "+ Add test USDC"}
       </button>
     </div>
   );
