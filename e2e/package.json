@@ -1,0 +1,13 @@
+{
+  "name": "famfi-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "walkthrough": "node walkthrough.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.49.1"
+  }
+}

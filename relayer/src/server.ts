@@ -20,7 +20,7 @@ const cfg: RelayerConfig = {
   faucetCooldownMs: Number(process.env.FAUCET_COOLDOWN_HOURS || "24") * 3600_000,
   maxGas: BigInt(process.env.MAX_GAS || "1000000"),
   ratePerMinute: Number(process.env.RATE_PER_MINUTE || "30"),
-  faucetStatePath: process.env.FAUCET_STATE_PATH || ".faucet-state.json",
+  faucetStatePath: process.env.FAUCET_STATE_PATH === "none" ? null : process.env.FAUCET_STATE_PATH || ".faucet-state.json",
 };
 
 const { app, ensureTreasuryAllowance } = createApp(cfg);

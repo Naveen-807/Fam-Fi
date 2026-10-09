@@ -131,10 +131,10 @@ on("StreamFunded", async ({ event, context }) => {
     rate: event.params.rate,
     updatedAt: ts(event),
   });
-  const perDay = (Number(event.params.rate) * 86400) / 1e6;
+  const perHour = (Number(event.params.rate) * 3600) / 1e6;
   timeline(context, event, {
     kind: "allowance",
-    text: `${cap(fam?.parentFamId ?? "A parent")} set aside ${money(event.params.budget)} for ${teen.name}'s allowance (about ${perDay.toFixed(2)} a day)`,
+    text: `${cap(fam?.parentFamId ?? "A parent")} set aside ${money(event.params.budget)} for ${teen.name}'s allowance (about ${perHour.toFixed(2)} an hour)`,
     actor: fam?.parent ?? event.params.teen,
     actorFamily: teen.familyId,
     counterparty: event.params.teen,

@@ -58,8 +58,13 @@ export function createApp(cfg: RelayerConfig) {
   };
 
   // ── faucet cooldowns, persisted so a restart does not reset them ──
-  const faucetSeen: Record<string, number> =
-    cfg.faucetStatePath && existsSync(cfg.faucetStatePath) ? JSON.parse(readFileSync(cfg.faucetStatePath, "utf8")) : {};
+  const faucetSeen: Record<string, number> = (() => {
+    try {
+      return cfg.faucetStatePath && existsSync(cfg.faucetStatePath) ? JSON.parse(readFileSync(cfg.faucetStatePath, "utf8")) : {};
+    } catch {
+      return {}; // unreadable state file: start clean rather than crash
+    }
+  })();
   const saveFaucet = () => cfg.faucetStatePath && writeFileSync(cfg.faucetStatePath, JSON.stringify(faucetSeen));
 
   const revertReason = (e: any): string => {
@@ -129,7 +134,9 @@ export function createApp(cfg: RelayerConfig) {
         return res.status(422).json({ error: revertReason(e) });
       }
 
-      const tx = await forwarderRelay.execute(request, { gasLimit: gas + 200_000n });
+      // Monad charges the gas LIMIT, not the gas used, so size the limit from an estimate instead of padding it.
+      const est: bigint = await forwarderRelay.execute.estimateGas(request);
+      const tx = await forwarderRelay.execute(request, { gasLimit: (est * 115n) / 100n });
       res.json({ hash: tx.hash, submittedAt: Date.now() });
     } catch (e: any) {
       res.status(500).json({ error: e?.shortMessage || e?.message || "relay failed" });
