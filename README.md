@@ -48,6 +48,9 @@ Fam-Fi is a family money app built on [Monad](https://monad.xyz) testnet for the
 
 node scripts/local-stack.mjs --app     # chain, contracts, relayer, indexer, demo family, web app
 # open http://localhost:3000 and pick a Judge Mode person
+
+# optional: also turn on real email sign-in (Dynamic) in the same local app
+NEXT_PUBLIC_DYNAMIC_ENV_ID=<your environment id> node scripts/local-stack.mjs --app
 ```
 
 Run the checks:

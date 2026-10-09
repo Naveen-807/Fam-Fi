@@ -59,6 +59,9 @@ const appEnv = [
   `NEXT_PUBLIC_FAMFI=${st.famFi}`, `NEXT_PUBLIC_FORWARDER=${st.forwarder}`, `NEXT_PUBLIC_USDC=${st.usdc}`,
   `NEXT_PUBLIC_RELAYER_URL=http://127.0.0.1:8787`, `NEXT_PUBLIC_ENVIO_URL=http://127.0.0.1:8080/v1/graphql`,
   `NEXT_PUBLIC_EXPLORER_TX=`, `NEXT_PUBLIC_NETWORK_LABEL=Local demo chain`,
+  // Optional: turn on real email sign-in against a Dynamic environment, e.g.
+  //   NEXT_PUBLIC_DYNAMIC_ENV_ID=<your id> node scripts/local-stack.mjs --app
+  ...(process.env.NEXT_PUBLIC_DYNAMIC_ENV_ID ? [`NEXT_PUBLIC_DYNAMIC_ENV_ID=${process.env.NEXT_PUBLIC_DYNAMIC_ENV_ID}`] : []),
 ].join("\n") + "\n";
 mkdirSync(path.join(root, "app"), { recursive: true });
 writeFileSync(path.join(root, "app/.env.local"), appEnv);
