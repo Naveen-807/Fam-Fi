@@ -26,17 +26,17 @@ export default function GiftPage() {
       ) : !g ? (
         <Card className="mx-auto mt-6 max-w-md text-center">
           <h1 className="text-xl font-bold">We can&apos;t find that goal</h1>
-          <p className="mt-2 text-sm text-slate-600">The link may be old or mistyped.</p>
+          <p className="mt-2 text-sm text-muted">The link may be old or mistyped.</p>
           <Link href="/gift"><Button className="mt-4" variant="ghost">See open goals</Button></Link>
         </Card>
       ) : (
         <div className="mx-auto max-w-md space-y-5">
           <Card>
-            <p className="text-sm text-slate-500">{cap(g.teenFamId)} is saving for</p>
+            <p className="text-sm text-dim">{cap(g.teenFamId)} is saving for</p>
             <h1 className="mb-4 text-2xl font-bold">{g.memo}</h1>
             <GoalCard g={g} />
             {(gifts.data?.Gift ?? []).length > 0 && (
-              <p className="mt-3 text-sm text-slate-600">
+              <p className="mt-3 text-sm text-muted">
                 Already backed by {gifts.data!.Gift.map((x) => `${cap(x.sponsorFamId)} (${fmt(big(x.amount))})`).join(", ")}.
               </p>
             )}
@@ -92,20 +92,20 @@ function Give({ goal, gifts, famId }: { goal: any; gifts: any[]; famId: string }
     <>
       <Card title="Your gift">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-500">Your balance (@{famId})</span>
+          <span className="text-dim">Your balance (@{famId})</span>
           <Money value={balance ?? 0n} size="sm" />
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <Field label="Put behind the goal"><Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Gift amount" /></Field>
           <Field label="Match">
-            <select value={ratio} onChange={(e) => setRatio(e.target.value)} aria-label="Match ratio" className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm">
+            <select value={ratio} onChange={(e) => setRatio(e.target.value)} aria-label="Match ratio" className="w-full rounded-xl border border-line bg-card2 px-3 py-2.5 text-sm">
               <option value="500000">50¢ for every $1 saved</option>
               <option value="1000000">$1 for every $1 saved</option>
               <option value="2000000">$2 for every $1 saved</option>
             </select>
           </Field>
         </div>
-        <p className="mt-3 text-sm text-slate-600">
+        <p className="mt-3 text-sm text-muted">
           Each time {cap(goal.teenFamId)} saves $1, <b>${per.toFixed(2)}</b> of your gift joins it automatically. Anything not matched, you can take back once the goal is reached or ends.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -116,7 +116,7 @@ function Give({ goal, gifts, famId }: { goal: any; gifts: any[]; famId: string }
           )}
           <Button busy={busy === "lock"} disabled={short || !amt} onClick={lock}>Lock my gift</Button>
         </div>
-        {short && <p className="mt-2 text-xs text-slate-500">You need a little more test money first.</p>}
+        {short && <p className="mt-2 text-xs text-dim">You need a little more test money first.</p>}
         <Proof tx={tx} label="Gift locked" />
       </Card>
 
@@ -124,7 +124,7 @@ function Give({ goal, gifts, famId }: { goal: any; gifts: any[]; famId: string }
         <Card title="Your gifts here">
           <div className="space-y-2">
             {mine.map((x) => (
-              <div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3 text-sm">
+              <div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card2 p-3 text-sm">
                 <span>
                   {fmt(big(x.amount))} locked · <b>{fmt(big(x.released))}</b> released · {fmt(big(x.escrow))} unused
                 </span>
@@ -136,7 +136,7 @@ function Give({ goal, gifts, famId }: { goal: any; gifts: any[]; famId: string }
               </div>
             ))}
           </div>
-          <p className="mt-2 text-xs text-slate-400">You can take back what&apos;s unused once the goal is reached or its time is up.</p>
+          <p className="mt-2 text-xs text-dim">You can take back what&apos;s unused once the goal is reached or its time is up.</p>
         </Card>
       )}
       <Pill tone="slate">{`Goal #${goal.id}`}</Pill>

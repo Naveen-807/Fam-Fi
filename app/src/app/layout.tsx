@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: "Spend freely inside smart limits. Save toward a goal and a relative's gift matches what you save. Built on Monad.",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#059669" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#0A0A0B" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

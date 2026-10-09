@@ -1,10 +1,29 @@
+@import url("https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
-html, body { background: #f4f7fb; color: #0f1b2d; }
-body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+:root { color-scheme: dark; }
+html, body { background: #0A0A0B; color: #F7F7F5; min-height: 100%; }
+body {
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background-image:
+    radial-gradient(900px 480px at 85% -8%, rgba(255,214,10,.14), transparent 60%),
+    radial-gradient(600px 400px at -10% 30%, rgba(255,214,10,.06), transparent 60%);
+  background-attachment: fixed;
+}
+::selection { background: #FFD60A; color: #0A0A0B; }
 .num { font-variant-numeric: tabular-nums; }
+input, button, select, textarea { font-family: inherit; }
+* { scrollbar-width: thin; scrollbar-color: #2A2A2E transparent; }
+
 @keyframes pop { from { transform: scale(.96); opacity: 0 } to { transform: scale(1); opacity: 1 } }
 .pop { animation: pop .18s ease-out; }
+
+@layer components {
+  .glass { background: rgba(20,20,22,.72); backdrop-filter: blur(14px); border: 1px solid #2A2A2E; }
+  .yellow-grad { background: linear-gradient(135deg, #FFE55C 0%, #FFD60A 45%, #F2B705 100%); }
+  .grid-dots { background-image: radial-gradient(rgba(255,255,255,.07) 1px, transparent 1px); background-size: 18px 18px; }
+  .stripe { background-image: repeating-linear-gradient(115deg, rgba(10,10,11,.07) 0 14px, transparent 14px 28px), linear-gradient(135deg, #FFE55C 0%, #FFD60A 45%, #F2B705 100%); }
+}

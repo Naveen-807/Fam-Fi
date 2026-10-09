@@ -39,7 +39,7 @@ function Join() {
       <Shell>
         <Card className="mx-auto mt-6 max-w-md text-center">
           <h1 className="text-xl font-bold">This invite link looks incomplete</h1>
-          <p className="mt-2 text-sm text-slate-600">Ask your parent to create a fresh one from their Fam-Fi page.</p>
+          <p className="mt-2 text-sm text-muted">Ask your parent to create a fresh one from their Fam-Fi page.</p>
         </Card>
       </Shell>
     );
@@ -50,7 +50,7 @@ function Join() {
       <Shell famId={acct.famId}>
         <Card className="mx-auto mt-6 max-w-md text-center">
           <h1 className="text-xl font-bold">You already have an account</h1>
-          <p className="mt-2 text-sm text-slate-600">@{acct.famId} can&apos;t join another family. Sign out and open the link with a new login.</p>
+          <p className="mt-2 text-sm text-muted">@{acct.famId} can&apos;t join another family. Sign out and open the link with a new login.</p>
           <Link href={acct.role === ROLE.TEEN ? "/teen" : "/parent"}><Button className="mt-4" variant="ghost">Go to my account</Button></Link>
         </Card>
       </Shell>
@@ -60,9 +60,9 @@ function Join() {
     <Shell>
       <Card className="mx-auto mt-6 max-w-md">
         <h1 className="text-2xl font-bold">You&apos;re invited 🎉</h1>
-        <p className="mt-1 text-sm text-slate-600">Pick a Fam-ID. Friends will use it to pay you, and you won&apos;t need to share any long codes.</p>
-        <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-          <p className="mb-1 font-semibold text-ink">The rules your parent chose</p>
+        <p className="mt-1 text-sm text-muted">Pick a Fam-ID. Friends will use it to pay you, and you won&apos;t need to share any long codes.</p>
+        <div className="mt-4 rounded-xl bg-card2 p-4 text-sm text-muted">
+          <p className="mb-1 font-semibold text-fg">The rules your parent chose</p>
           <ul className="list-disc space-y-1 pl-5">{terms && describeTerms(terms).map((t) => <li key={t}>{t}</li>)}</ul>
         </div>
         <div className="mt-5 space-y-4">

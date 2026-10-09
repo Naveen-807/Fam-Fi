@@ -34,7 +34,7 @@ export default function ParentPage() {
       <Shell famId={acct.famId}>
         <Card className="mx-auto mt-6 max-w-md text-center">
           <h1 className="text-xl font-bold">This account isn&apos;t a parent</h1>
-          <p className="mt-2 text-sm text-slate-600">Signed in as @{acct.famId}. Try the teen or gift view instead.</p>
+          <p className="mt-2 text-sm text-muted">Signed in as @{acct.famId}. Try the teen or gift view instead.</p>
           <div className="mt-4 flex justify-center gap-2">
             <Link href="/teen"><Button variant="ghost">Teen view</Button></Link>
             <Link href="/gift"><Button variant="ghost">Gift view</Button></Link>
@@ -52,7 +52,7 @@ function FamilyStep({ onDone }: { onDone: () => void }) {
   return (
     <Card className="mx-auto mt-6 max-w-md text-center">
       <h1 className="text-xl font-bold">One more step</h1>
-      <p className="mt-2 text-sm text-slate-600">Create your family so you can invite your teen.</p>
+      <p className="mt-2 text-sm text-muted">Create your family so you can invite your teen.</p>
       <Button
         className="mt-4"
         busy={busy === "fam"}
@@ -96,7 +96,7 @@ function Dashboard({ acct }: { acct: Account }) {
       <Card>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-sm text-slate-500">Your balance</p>
+            <p className="text-sm text-dim">Your balance</p>
             <Money value={balance ?? 0n} size="xl" />
           </div>
           <Button
@@ -109,7 +109,7 @@ function Dashboard({ acct }: { acct: Account }) {
             + Add test USDC
           </Button>
         </div>
-        <p className="mt-3 text-xs text-slate-400">Test dollars have no real value. This is a prototype on a test network.</p>
+        <p className="mt-3 text-xs text-dim">Test dollars have no real value. This is a prototype on a test network.</p>
       </Card>
 
       <Approvals pending={pending.data?.Pending} goals={goals.data?.Goal} waiting={waiting} />
@@ -162,14 +162,14 @@ function Approvals({ pending, goals, waiting }: { pending?: any[]; goals?: any[]
           const over = p.kind === "OVER_LIMIT";
           const left = Math.max(0, Number(p.releaseAt) - now);
           return (
-            <div key={p.id} className="rounded-xl border border-sun-100 bg-sun-100/40 p-4">
+            <div key={p.id} className="rounded-xl border border-warn/30 bg-warn/10 p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-semibold">
                   {cap(p.fromFamId)} wants to pay {cap(p.toFamId)} <span className="num">{fmt(big(p.amount))}</span>
                 </p>
                 <Pill tone="sun">{over ? "over today's limit" : "looks unusual"}</Pill>
               </div>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted">
                 {over
                   ? "This is more than the daily limit, so it waits for you."
                   : left > 0
@@ -186,7 +186,7 @@ function Approvals({ pending, goals, waiting }: { pending?: any[]; goals?: any[]
           );
         })}
         {proposed.map((g) => (
-          <div key={g.id} className="rounded-xl border border-slate-200 p-4">
+          <div key={g.id} className="rounded-xl border border-line p-4">
             <p className="font-semibold">
               {cap(g.teenFamId)} wants to save <span className="num">{fmt(big(g.target))}</span> for &ldquo;{g.memo}&rdquo;
             </p>
@@ -251,7 +251,7 @@ function TeenPanel({ teen, parentBalance, onChange }: { teen: { id: string; famI
   }
 
   return (
-    <Card>
+    <Card hero>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-lg font-bold">{cap(teen.famId)}</p>
@@ -270,18 +270,18 @@ function TeenPanel({ teen, parentBalance, onChange }: { teen: { id: string; famI
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-slate-50 p-3">
-          <p className="text-xs text-slate-500">Can spend now</p>
+        <div className="rounded-xl bg-card2 p-3">
+          <p className="text-xs text-dim">Can spend now</p>
           <Money value={spendable} />
         </div>
-        <div className="rounded-xl bg-slate-50 p-3">
-          <p className="text-xs text-slate-500">Left today</p>
+        <div className="rounded-xl bg-card2 p-3">
+          <p className="text-xs text-dim">Left today</p>
           <Money value={view.remainingToday} />
         </div>
       </div>
 
-      <details className="mt-4 rounded-xl border border-slate-100 p-3" open={view.streamRemaining === 0n}>
-        <summary className="cursor-pointer text-sm font-semibold">Allowance {view.streamRemaining > 0n && <span className="num font-normal text-slate-500">· {fmt(view.streamRemaining)} still to flow</span>}</summary>
+      <details className="mt-4 rounded-xl border border-line p-3" open={view.streamRemaining === 0n}>
+        <summary className="cursor-pointer text-sm font-semibold">Allowance {view.streamRemaining > 0n && <span className="num font-normal text-dim">· {fmt(view.streamRemaining)} still to flow</span>}</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <Field label="Set aside (total)"><Input inputMode="decimal" value={budget} placeholder="e.g. 20" onChange={(e) => setBudget(e.target.value)} aria-label="Allowance budget" /></Field>
           <Field label="Flow per hour"><Input inputMode="decimal" value={perHour} placeholder="e.g. 0.5" onChange={(e) => setPerHour(e.target.value)} aria-label="Allowance per hour" /></Field>
@@ -290,7 +290,7 @@ function TeenPanel({ teen, parentBalance, onChange }: { teen: { id: string; famI
         <Proof tx={tx} label="Allowance started" />
       </details>
 
-      <details className="mt-3 rounded-xl border border-slate-100 p-3">
+      <details className="mt-3 rounded-xl border border-line p-3">
         <summary className="cursor-pointer text-sm font-semibold">Daily limits by level</summary>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {L.map((v, i) => (
@@ -299,7 +299,7 @@ function TeenPanel({ teen, parentBalance, onChange }: { teen: { id: string; famI
             </Field>
           ))}
         </div>
-        <p className="mt-2 text-xs text-slate-500">Payments above the limit wait for you. A first payment over {fmt(view.threshold)} to someone new is held for {Math.round(view.holdSeconds / 60)} min.</p>
+        <p className="mt-2 text-xs text-dim">Payments above the limit wait for you. A first payment over {fmt(view.threshold)} to someone new is held for {Math.round(view.holdSeconds / 60)} min.</p>
         <Button className="mt-3" variant="ghost" busy={busy === "lim"} disabled={!limits} onClick={saveLimits}>Save limits</Button>
       </details>
     </Card>
@@ -345,7 +345,7 @@ function InviteCard({ familyId }: { familyId: number }) {
 
   return (
     <Card title="Invite a teen">
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-muted">
         Choose the rules your teen starts with. They&apos;re signed into the link, so your teen can&apos;t change them, and you can adjust them any time later.
       </p>
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -366,14 +366,14 @@ function InviteCard({ familyId }: { familyId: number }) {
           <Input inputMode="numeric" value={holdMin} placeholder="10" onChange={(e) => setHoldMin(e.target.value)} aria-label="Hold minutes" />
         </Field>
       </div>
-      <label className="mt-3 flex items-start gap-2 text-sm text-slate-600">
+      <label className="mt-3 flex items-start gap-2 text-sm text-muted">
         <input type="checkbox" checked={strict} onChange={(e) => setStrict(e.target.checked)} className="mt-0.5" aria-label="Parent must approve every hold" />
         <span>I must approve every held payment. (If off, your teen can release one after the wait if you haven&apos;t answered.)</span>
       </label>
       <Button className="mt-4" variant="soft" busy={busy === "inv"} onClick={make}>Create invite link</Button>
       {link && (
         <div className="pop mt-3 space-y-3">
-          <p className="text-xs text-slate-500">Works for 7 days. The first person to open it joins your family, so send it only to your teen.</p>
+          <p className="text-xs text-dim">Works for 7 days. The first person to open it joins your family, so send it only to your teen.</p>
           <Input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Invite link" />
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="ghost" onClick={async () => { await navigator.clipboard?.writeText(link); toast.ok("Link copied"); }}>Copy link</Button>

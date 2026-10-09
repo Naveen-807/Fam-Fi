@@ -39,7 +39,7 @@ function TeenInner() {
       <Shell>
         <Card className="mx-auto mt-6 max-w-md text-center">
           <h1 className="text-xl font-bold">You need an invite</h1>
-          <p className="mt-2 text-sm text-slate-600">Teens join with a link from a parent. Ask yours to open the Fam-Fi parent page and create an invite.</p>
+          <p className="mt-2 text-sm text-muted">Teens join with a link from a parent. Ask yours to open the Fam-Fi parent page and create an invite.</p>
           <Link href="/parent"><Button className="mt-4" variant="ghost">I&apos;m a parent</Button></Link>
         </Card>
       </Shell>
@@ -49,7 +49,7 @@ function TeenInner() {
       <Shell famId={acct.famId}>
         <Card className="mx-auto mt-6 max-w-md text-center">
           <h1 className="text-xl font-bold">This account isn&apos;t a teen</h1>
-          <p className="mt-2 text-sm text-slate-600">Signed in as @{acct.famId}.</p>
+          <p className="mt-2 text-sm text-muted">Signed in as @{acct.famId}.</p>
           <Link href={acct.role === ROLE.PARENT ? "/parent" : "/gift"}><Button className="mt-4" variant="ghost">Go to your view</Button></Link>
         </Card>
       </Shell>
@@ -71,24 +71,24 @@ function Dashboard({ acct }: { acct: Account }) {
 
   return (
     <div className="space-y-5">
-      <Card>
-        <div className="flex items-start justify-between gap-3">
+      <Card hero>
+        <div className="relative flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm text-slate-500">You can spend</p>
+            <p className="text-sm text-dim">You can spend</p>
             <Money value={spendable} size="xl" />
-            {view.rate > 0n && view.streamRemaining > 0n && <p className="mt-1 text-xs font-medium text-mint-600">▲ allowance flowing in</p>}
+            {view.rate > 0n && view.streamRemaining > 0n && <p className="mt-1 text-xs font-medium text-brand">▲ allowance flowing in</p>}
           </div>
           <div className="text-right">
             <Pill tone="mint">Level {view.level + 1}</Pill>
-            <p className="mt-2 text-xs text-slate-500">Daily limit {fmt(limit)}</p>
+            <p className="mt-2 text-xs text-dim">Daily limit {fmt(limit)}</p>
           </div>
         </div>
-        <div className="mt-4 rounded-xl bg-slate-50 px-4 py-3 text-sm">
-          <span className="text-slate-500">Left to spend today: </span>
+        <div className="mt-4 rounded-xl bg-card2 px-4 py-3 text-sm">
+          <span className="text-dim">Left to spend today: </span>
           <span className="num font-semibold">{fmt(view.remainingToday)}</span>
         </div>
         {view.frozen && (
-          <p className="mt-3 rounded-xl bg-rose-100 px-4 py-3 text-sm font-medium text-rose-600" role="alert">
+          <p className="mt-3 rounded-xl bg-bad/15 px-4 py-3 text-sm font-medium text-bad" role="alert">
             Your parent has frozen spending for now. You can still save, and money can still come in.
           </p>
         )}
@@ -98,7 +98,7 @@ function Dashboard({ acct }: { acct: Account }) {
 
       <div className="flex gap-2" role="tablist">
         {(["home", "timeline"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`rounded-full px-4 py-1.5 text-sm font-semibold ${tab === t ? "bg-ink text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`rounded-full px-4 py-1.5 text-sm font-semibold ${tab === t ? "bg-brand text-onbrand" : "bg-card2 text-muted ring-1 ring-line"}`}>
             {t === "home" ? "Home" : "Timeline"}
           </button>
         ))}
@@ -124,7 +124,7 @@ function AddMoney({ famId, onDone }: { famId: string; onDone: () => void }) {
   return (
     <div className="mt-3">
       <button
-        className="text-sm font-semibold text-mint-700 underline disabled:opacity-50"
+        className="text-sm font-semibold text-brand underline disabled:opacity-50"
         disabled={busy === "add"}
         onClick={() => run("add", async () => { const r = await faucet(famId); onDone(); return r; }, (r) => `Added ${r.amount} test dollars`)}
       >
@@ -141,9 +141,9 @@ function MyCode({ famId }: { famId: string }) {
   const url = typeof window === "undefined" ? "" : `${window.location.origin}/teen?pay=${famId}`;
   return (
     <div className="mt-3 flex flex-wrap items-center gap-3">
-      <span className="rounded-lg bg-mint-50 px-3 py-1.5 text-sm font-semibold text-mint-700">Your Fam-ID: @{famId}</span>
-      <button className="text-sm font-semibold text-slate-500 underline" onClick={() => setOpen((o) => !o)}>{open ? "Hide my pay code" : "Show my pay code"}</button>
-      {open && <div className="pop w-full"><QR value={url} size={150} /><p className="mt-1 text-xs text-slate-500">Friends scan this to pay you.</p></div>}
+      <span className="rounded-lg bg-brand/10 px-3 py-1.5 text-sm font-semibold text-brand">Your Fam-ID: @{famId}</span>
+      <button className="text-sm font-semibold text-dim underline" onClick={() => setOpen((o) => !o)}>{open ? "Hide my pay code" : "Show my pay code"}</button>
+      {open && <div className="pop w-full"><QR value={url} size={150} /><p className="mt-1 text-xs text-dim">Friends scan this to pay you.</p></div>}
     </div>
   );
 }
@@ -244,7 +244,7 @@ function PayCard({ acct, onDone }: { acct: Account; onDone: () => void }) {
         <ScanButton onFound={setTo} />
       </div>
       {note && (
-        <p className={`pop mt-3 rounded-xl px-4 py-3 text-sm ${note.tone === "ok" ? "bg-mint-50 text-mint-700" : "bg-sun-100 text-sun-700"}`} role="status">{note.text}</p>
+        <p className={`pop mt-3 rounded-xl px-4 py-3 text-sm ${note.tone === "ok" ? "bg-brand/10 text-brand" : "bg-warn/15 text-warn"}`} role="status">{note.text}</p>
       )}
       <Proof tx={tx} label={tx?.held ? "Held" : "Paid"} />
     </Card>
@@ -268,9 +268,9 @@ function Held({ me, view, onDone }: { me: string; view: { strictHolds: boolean }
           const left = Math.max(0, Number(p.releaseAt) - now);
           const canRelease = !over && !view.strictHolds && left <= 0;
           return (
-            <div key={p.id} className="rounded-xl border border-sun-100 bg-sun-100/40 p-4">
+            <div key={p.id} className="rounded-xl border border-warn/30 bg-warn/10 p-4">
               <p className="font-semibold">{fmt(big(p.amount))} to {cap(p.toFamId)}</p>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-muted">
                 {over ? "Waiting for your parent to approve." : view.strictHolds ? "Waiting for your parent to approve." : left > 0 ? `You can release it in ${Math.ceil(left)}s unless your parent says no.` : "The hold is over. You can release it now."}
               </p>
               <div className="mt-3 flex gap-2">
@@ -320,10 +320,10 @@ function Requests({ acct, me, onDone }: { acct: Account; me: string; onDone: () 
       <Button className="mt-4" variant="soft" busy={busy === "ask"} onClick={ask}>Send request</Button>
 
       {(incoming.data?.Request ?? []).length > 0 && (
-        <div className="mt-5 space-y-2 border-t border-slate-100 pt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Asking you</p>
+        <div className="mt-5 space-y-2 border-t border-line pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-dim">Asking you</p>
           {incoming.data!.Request.map((r) => (
-            <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 p-3">
+            <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card2 p-3">
               <p className="text-sm"><span className="font-semibold">{cap(r.fromFamId)}</span> asks for <span className="num font-semibold">{fmt(big(r.amount))}</span>{r.memo ? ` · ${r.memo}` : ""}</p>
               <Button busy={busy === "pr" + r.id} onClick={async () => { if (await run("pr" + r.id, () => relay(signer!, "payRequest", [BigInt(r.id)]), "Paid")) onDone(); }}>Pay</Button>
             </div>
@@ -363,7 +363,7 @@ function SplitCard({ onDone }: { onDone: () => void }) {
 
   return (
     <Card title="Split a bill">
-      <p className="mb-3 text-sm text-slate-600">Paid for everyone? Share a link. Each friend pays their part straight to you, and you can watch it fill up.</p>
+      <p className="mb-3 text-sm text-muted">Paid for everyone? Share a link. Each friend pays their part straight to you, and you can watch it fill up.</p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Total bill"><Input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="12.00" aria-label="Bill total" /></Field>
         <Field label="Friends who owe"><Input inputMode="numeric" value={people} onChange={(e) => setPeople(e.target.value)} aria-label="Friends who owe" /></Field>
@@ -458,8 +458,8 @@ function Goals({ acct, me, view, onDone }: { acct: Account; me: string; view: { 
         ))}
       </div>
 
-      <div className="mt-5 border-t border-slate-100 pt-4">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">New goal</p>
+      <div className="mt-5 border-t border-line pt-4">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-dim">New goal</p>
         <div className="grid gap-3 sm:grid-cols-[1fr_8rem_6rem]">
           <Field label="Saving for"><Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Headphones" maxLength={40} aria-label="Goal name" /></Field>
           <Field label="Costs"><Input inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="40" aria-label="Goal cost" /></Field>

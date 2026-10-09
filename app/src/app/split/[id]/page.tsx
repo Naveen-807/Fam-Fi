@@ -25,16 +25,16 @@ export default function SplitPage() {
         {!split.data ? (
           <Empty>Loading…</Empty>
         ) : !s ? (
-          <Card className="text-center"><h1 className="text-xl font-bold">We can&apos;t find that split</h1><p className="mt-2 text-sm text-slate-600">The link may be old or mistyped.</p></Card>
+          <Card className="text-center"><h1 className="text-xl font-bold">We can&apos;t find that split</h1><p className="mt-2 text-sm text-muted">The link may be old or mistyped.</p></Card>
         ) : (
           <>
             <Card>
-              <p className="text-sm text-slate-500">{cap(s.creatorFamId)} paid for</p>
+              <p className="text-sm text-dim">{cap(s.creatorFamId)} paid for</p>
               <h1 className="text-2xl font-bold">{s.memo}</h1>
-              <p className="mt-1 text-sm text-slate-600">Your share is <b className="num">${fmt(big(s.perShare))}</b></p>
+              <p className="mt-1 text-sm text-muted">Your share is <b className="num">${fmt(big(s.perShare))}</b></p>
               <div className="mt-4">
                 <Progress value={BigInt(s.paid)} max={BigInt(s.slots)} />
-                <p className="num mt-1.5 text-xs text-slate-500">{s.paid} of {s.slots} have paid</p>
+                <p className="num mt-1.5 text-xs text-dim">{s.paid} of {s.slots} have paid</p>
               </div>
               {paidBy.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -76,12 +76,12 @@ function Pay({ split, me, already }: { split: any; me: string; already: boolean 
   }, [refreshBalance]);
 
   if (isCreator)
-    return <Card><p className="text-sm text-slate-600">This is your split. Send the link to your friends and watch it fill up above.</p></Card>;
+    return <Card><p className="text-sm text-muted">This is your split. Send the link to your friends and watch it fill up above.</p></Card>;
   if (already || tx)
     return (
       <Card>
-        <p className="font-semibold text-mint-700">You&apos;ve paid your share ✓</p>
-        {tx?.held && <p className="mt-2 rounded-xl bg-sun-100 px-4 py-3 text-sm text-sun-700">Your payment is on hold for a moment {tx.held.kind === 0 ? "because it's over your daily limit, so a parent has to OK it" : "because it looks unusual, and a parent was alerted"}.</p>}
+        <p className="font-semibold text-brand">You&apos;ve paid your share ✓</p>
+        {tx?.held && <p className="mt-2 rounded-xl bg-warn/15 px-4 py-3 text-sm text-warn">Your payment is on hold for a moment {tx.held.kind === 0 ? "because it's over your daily limit, so a parent has to OK it" : "because it looks unusual, and a parent was alerted"}.</p>}
         <Proof tx={tx} label={tx?.held ? "Held" : "Paid"} />
       </Card>
     );
@@ -91,7 +91,7 @@ function Pay({ split, me, already }: { split: any; me: string; already: boolean 
   return (
     <Card title="Your share">
       <div className="flex items-center justify-between text-sm">
-        <span className="text-slate-500">Your balance (@{me})</span>
+        <span className="text-dim">Your balance (@{me})</span>
         <Money value={balance ?? 0n} size="sm" />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">

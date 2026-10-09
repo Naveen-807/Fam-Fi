@@ -10,7 +10,7 @@ export default function GiftIndex() {
   return (
     <Shell famId={acct?.famId}>
       <Card title="Goals you can help with">
-        <p className="mb-4 text-sm text-slate-600">
+        <p className="mb-4 text-sm text-muted">
           Lock a gift behind a goal. Every dollar the teen saves releases a dollar of yours, and you can take back whatever isn&apos;t used.
         </p>
         {!data ? (
