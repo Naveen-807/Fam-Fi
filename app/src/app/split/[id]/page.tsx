@@ -44,7 +44,7 @@ export default function SplitPage() {
             </Card>
 
             {!signer ? (
-              <SignIn title="Pay your share" blurb="Sign in with your email to pay. It takes a minute." personas={[{ name: "aunt", label: "Judge Mode: a friend" }, { name: "alex", label: "Judge Mode: Alex (teen)" }]} />
+              <SignIn title="Pay your share" blurb="Sign in with your email to pay. It takes a minute." />
             ) : !loaded ? (
               <Empty>Loading…</Empty>
             ) : !acct || acct.role === ROLE.NONE ? (

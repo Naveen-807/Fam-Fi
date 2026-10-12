@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "walkthrough": "node walkthrough.mjs"
+    "dynamic-ui": "node dynamic-ui.mjs"
   },
   "dependencies": {
     "playwright-core": "^1.49.1"

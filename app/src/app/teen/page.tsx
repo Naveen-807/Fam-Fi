@@ -29,7 +29,6 @@ function TeenInner() {
         <SignIn
           title="Teen sign in"
           blurb="Pay friends by name, save toward goals, and watch your limit grow."
-          personas={[{ name: "alex", label: "Judge Mode: Alex" }, { name: "riya", label: "Judge Mode: Riya" }]}
         />
       </Shell>
     );
