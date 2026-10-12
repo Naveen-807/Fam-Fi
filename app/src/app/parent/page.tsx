@@ -23,7 +23,6 @@ export default function ParentPage() {
         <SignIn
           title="Parent sign in"
           blurb="Set up your family in under a minute. You decide the limits; your teen gets room to grow."
-          personas={[{ name: "priya", label: "Judge Mode: Priya" }]}
         />
       </Shell>
     );
