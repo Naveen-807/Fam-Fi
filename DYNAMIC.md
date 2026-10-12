@@ -18,6 +18,8 @@ There are no other login paths. Without `NEXT_PUBLIC_DYNAMIC_ENV_ID` the app ref
 
 Fam-Fi's users are teens, parents, and relatives who have never held a wallet. Email + passkey means nobody sees a seed phrase or needs gas. The signed EIP-712 request goes to our relayer, which pays gas, so the flow is: email code -> wallet -> tap -> done.
 
+Fam-Fi also asks Dynamic to sign one more typed message, `ReadAuth` (domain `FamFiRead`), to prove who is asking for private family summaries. It is a read-only sign-in with a 30-minute expiry, not a transaction.
+
 ## Setup (sandbox environment)
 
 1. Create a sandbox environment at https://console.dynamic.xyz and copy the Environment ID.
