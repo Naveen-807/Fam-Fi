@@ -136,7 +136,7 @@ export function Empty({ children }: { children: ReactNode }) {
 
 // ───────────── layout ─────────────
 export function Shell({ children, famId, role }: { children: ReactNode; famId?: string; role?: string }) {
-  const { signer, logout, isDemo } = useWallet();
+  const { signer, logout } = useWallet();
   return (
     <div className="mx-auto min-h-screen max-w-6xl px-5 pb-24 pt-6 lg:px-10">
       <header className="mb-6 flex items-center justify-between gap-2">
@@ -145,8 +145,8 @@ export function Shell({ children, famId, role }: { children: ReactNode; famId?: 
           <span className="text-lg font-extrabold">Fam<span className="text-brand">-Fi</span></span>
         </Link>
         <div className="flex min-w-0 items-center gap-2">
-          <span className="hidden sm:inline"><Pill tone={isDemo ? "sun" : "slate"}>{isDemo ? "Judge/demo wallet" : cfg.networkLabel}</Pill></span>
-          <span className="sm:hidden"><Pill tone={isDemo ? "sun" : "slate"}>{isDemo ? "Demo" : "Test"}</Pill></span>
+          <span className="hidden sm:inline"><Pill tone="slate">{cfg.networkLabel}</Pill></span>
+          <span className="sm:hidden"><Pill tone="slate">Test</Pill></span>
           {signer && (
             <button onClick={logout} className="truncate whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold text-dim hover:bg-card2 hover:text-fg" aria-label="Sign out">
               {famId ? `@${famId}${role ? " · " + role : ""} ·` : ""} Sign out
@@ -160,9 +160,9 @@ export function Shell({ children, famId, role }: { children: ReactNode; famId?: 
   );
 }
 
-/** Shown when nobody is signed in. */
-export function SignIn({ title, blurb, personas }: { title: string; blurb: string; personas?: { name: string; label: string }[] }) {
-  const { login, loginDemo, hasDynamic, ready } = useWallet();
+/** Shown when nobody is signed in. Sign-up and login are the same step: a new email gets a new wallet, a known email gets its wallet back. */
+export function SignIn({ title, blurb }: { title: string; blurb: string }) {
+  const { hasDynamic } = useWallet();
   return (
     <Card className="mx-auto mt-6 max-w-md text-center shadow-glow">
       <span className="yellow-grad mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl text-2xl font-black text-onbrand animate-float">F</span>
@@ -172,23 +172,11 @@ export function SignIn({ title, blurb, personas }: { title: string; blurb: strin
         {hasDynamic ? (
           <EmailLogin />
         ) : (
-          <Button full onClick={login} disabled={!ready}>
-            Create a demo account
-          </Button>
+          <p className="text-sm text-bad" role="alert">
+            Sign-in isn&apos;t configured. Set NEXT_PUBLIC_DYNAMIC_ENV_ID in app/.env.local and restart.
+          </p>
         )}
       </div>
-      {cfg.judgeMode && personas && personas.length > 0 && (
-        <div className="mt-5 border-t border-line pt-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-dim">Judge Mode: try a ready-made account</p>
-          <div className="flex flex-wrap justify-center gap-2">
-            {personas.map((p) => (
-              <Button key={p.name} variant="soft" onClick={() => loginDemo(p.name)}>
-                {p.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-      )}
     </Card>
   );
 }
@@ -249,10 +237,10 @@ function EmailLogin() {
 
 /** Shown once after the first email login: turn on Face ID / fingerprint for next time. */
 function PasskeyPrompt() {
-  const { auth, signer, isDemo } = useWallet();
+  const { auth, signer } = useWallet();
   const [hidden, setHidden] = useState(false);
   // If this Dynamic environment has passkeys switched off, don't keep offering them.
-  if (isDemo || !signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden || /not enabled/i.test(auth.error ?? "")) return null;
+  if (!signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden || /not enabled/i.test(auth.error ?? "")) return null;
   return (
     <div className="pop mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-brand/30 bg-brand/10 p-4 text-sm text-fg">
       <p className="min-w-0 flex-1">
