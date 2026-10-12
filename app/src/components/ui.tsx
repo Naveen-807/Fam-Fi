@@ -4,6 +4,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { cfg } from "@/lib/config";
 import { explorerTx, TxResult } from "@/lib/relay";
 import { useWallet } from "@/lib/wallet";
+import { useRef } from "react";
 import { fmt, timeAgo, cap, big } from "@/lib/format";
 
 // ───────────── toasts ─────────────
@@ -347,5 +348,55 @@ export function GoalCard({
       </div>
       {children && <div className="mt-3 flex flex-wrap gap-2">{children}</div>}
     </div>
+  );
+}
+
+/** A confirmation for anything that moves money: says exactly what will happen, then asks. Escape or the backdrop cancels. */
+export function ConfirmDialog({
+  open, title, lines, confirmLabel = "Confirm", danger, busy, onConfirm, onCancel,
+}: {
+  open: boolean; title: string; lines: ReactNode[]; confirmLabel?: string; danger?: boolean; busy?: boolean;
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onCancel();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, busy, onCancel]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center" onClick={() => !busy && onCancel()}>
+      <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} className="pop w-full max-w-md rounded-3xl border border-line bg-card p-5 shadow-glow">
+        <h2 className="text-lg font-extrabold">{title}</h2>
+        <ul className="mt-3 space-y-2 text-sm text-muted">
+          {lines.map((l, i) => (
+            <li key={i} className="flex gap-2"><span aria-hidden className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-brand" /><span>{l}</span></li>
+          ))}
+        </ul>
+        <div className="mt-5 flex gap-2">
+          <Button full variant={danger ? "danger" : "primary"} busy={busy} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+          <button ref={ref} type="button" disabled={busy} onClick={onCancel} className="w-full rounded-2xl bg-card2 px-5 py-3 text-sm font-bold ring-1 ring-line hover:ring-brand/50 disabled:text-dim">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A small "waiting for the indexer" / "last updated" strip, so confirmed chain facts and indexed summaries are never confused. */
+export function FreshNote({ fetchedAt, error, blockNumber }: { fetchedAt: number; error?: string | null; blockNumber?: number }) {
+  if (error) return <p className="text-xs text-bad" role="status">Couldn&apos;t refresh this summary: {error}. What you see may be out of date; on-chain balances above are always live.</p>;
+  if (!fetchedAt) return <p className="text-xs text-dim">Loading summary…</p>;
+  return (
+    <p className="text-xs text-dim">
+      Summary from the Envio indexer, refreshed {timeAgo(Math.floor(fetchedAt / 1000))}
+      {blockNumber ? ` · latest counted action at block ${blockNumber}` : ""}. It trails the chain by a moment.
+    </p>
   );
 }

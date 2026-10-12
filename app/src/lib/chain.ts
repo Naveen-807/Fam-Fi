@@ -91,6 +91,21 @@ export function liveSpendable(t: TeenView, nowMs = Date.now()): bigint {
   return t.balance + t.accrued + extra;
 }
 
+export const MSTATUS = ["NONE", "ACTIVE", "SUBMITTED", "REJECTED", "APPROVED", "CANCELLED", "EXPIRED"] as const;
+export type ChainMission = { parent: string; teen: string; reward: bigint; deadline: number; status: (typeof MSTATUS)[number]; goalId: bigint };
+
+/** The contract is the authority for a mission's state; the app re-reads it before acting so it never acts on a stale screen. */
+export async function readMission(id: bigint | string): Promise<ChainMission> {
+  const m = await fam.missions(id);
+  return { parent: m.parent, teen: m.teen, reward: m.reward, deadline: Number(m.deadline), status: MSTATUS[Number(m.status)] ?? "NONE", goalId: m.goalId };
+}
+
+export type ChainFund = { parent: string; teen: string; target: bigint; funded: bigint; horizon: number; status: "NONE" | "OPEN" | "RELEASED" };
+export async function readFund(id: bigint | string): Promise<ChainFund> {
+  const f = await fam.funds(id);
+  return { parent: f.parent, teen: f.teen, target: f.target, funded: f.funded, horizon: Number(f.horizon), status: (["NONE", "OPEN", "RELEASED"] as const)[Number(f.status)] };
+}
+
 /** Contract revert strings -> words a family would use. */
 const FRIENDLY: Record<string, string> = {
   frozen: "Spending is frozen by your parent.",
@@ -113,6 +128,23 @@ const FRIENDLY: Record<string, string> = {
   "slow down": "Too many requests. Wait a few seconds.",
   "gift still active": "Not yet. You can take it back once the goal is reached or its time is up.",
   "nothing to reclaim": "There's nothing left to take back.",
+  "not submitted": "That mission isn't waiting for review any more. Refreshing.",
+  "not your mission": "That mission isn't yours to change.",
+  "mission ended": "The deadline for that mission has passed.",
+  "too many missions": "That teen already has 10 open missions. Finish or cancel one first.",
+  "bad title": "Give the mission a short title (up to 80 characters).",
+  "bad description": "The description is too long (280 characters at most).",
+  "bad feedback": "Keep the feedback short (140 characters at most).",
+  "bad deadline": "Pick a deadline between now and a year from now.",
+  "not your goal": "That goal doesn't belong to this teen.",
+  "not ended": "That mission's deadline hasn't passed yet.",
+  "fund not open": "That FutureFund has already been paid out.",
+  "not your fund": "That FutureFund isn't yours to change.",
+  "nothing in fund": "There's nothing in that FutureFund yet.",
+  "not yet": "That FutureFund can be claimed once its target date arrives.",
+  "bad horizon": "Pick a date in the future, within 40 years.",
+  "bad name": "Give the FutureFund a short name (up to 60 characters).",
+  "bad purpose": "The purpose is too long (200 characters at most).",
 };
 export function friendlyError(e: any): string {
   const raw: string = e?.revert?.args?.[0] || e?.reason || e?.info?.error?.message || e?.shortMessage || e?.message || String(e);

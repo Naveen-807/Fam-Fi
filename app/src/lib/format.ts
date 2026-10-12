@@ -34,3 +34,22 @@ export function timeAgo(ts: number): string {
 }
 
 export const FAMID_RE = /^[a-z0-9_]{3,20}$/;
+
+/** Byte length as the contract counts it (UTF-8), so the form can check limits before a transaction is wasted. */
+export const byteLen = (s: string) => new TextEncoder().encode(s).length;
+
+/** "2027-01-31" (a calendar day in the viewer's time zone) -> unix seconds at the END of that local day. */
+export function endOfDay(dateStr: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  const d = new Date(`${dateStr}T23:59:59`);
+  const t = d.getTime();
+  return Number.isNaN(t) ? null : Math.floor(t / 1000);
+}
+
+export const dayString = (daysFromNow: number) => {
+  const d = new Date(Date.now() + daysFromNow * 86400_000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+export const dateTimeText = (ts: number) => new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+export const dateText = (ts: number) => new Date(ts * 1000).toLocaleDateString(undefined, { dateStyle: "medium" });

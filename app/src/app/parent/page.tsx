@@ -7,6 +7,11 @@ import { Account, ROLE, readBalance, TeenView } from "@/lib/chain";
 import { faucet, relay, signInvite, TxResult } from "@/lib/relay";
 import { Q, useGql } from "@/lib/gql";
 import { useAct, useMe, useNow, useTeenView } from "@/lib/hooks";
+import { usePrivate, type Bundle } from "@/lib/private";
+import { ApprovalInbox } from "@/components/inbox";
+import { ParentMissions } from "@/components/missions";
+import { WeeklyBrief } from "@/components/brief";
+import { ParentFutureFund } from "@/components/futurefund";
 import { useWallet } from "@/lib/wallet";
 import { big, cap, fmt, parseAmount } from "@/lib/format";
 import { cfg } from "@/lib/config";
@@ -69,34 +74,6 @@ function FamilyStep({ onDone }: { onDone: () => void }) {
 // ───────────────────────── money requests ─────────────────────────
 
 /** Requests your teens (or anyone) sent you. Paying one moves the money from your balance to theirs. */
-function MoneyRequests({ me, onPaid }: { me: string; onPaid: () => void }) {
-  const { signer } = useWallet();
-  const { busy, run } = useAct();
-  const incoming = useGql<{ Request: any[] }>(Q.requestsTo, { a: me }, `r${me}`);
-  const rows = incoming.data?.Request ?? [];
-  return (
-    <Card title="Money requests" right={rows.length > 0 ? <Pill tone="sun">{rows.length} asking</Pill> : undefined}>
-      {rows.length === 0 ? (
-        <Empty>When your teen asks you for money, it shows up here and you pay with one tap.</Empty>
-      ) : (
-        <div className="space-y-2">
-          {rows.map((r) => (
-            <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-card2 p-3">
-              <p className="text-sm">
-                <span className="font-bold">{cap(r.fromFamId)}</span> asks for <span className="num font-bold text-brand">{fmt(big(r.amount))}</span>
-                {r.memo ? <span className="text-muted"> · {r.memo}</span> : null}
-              </p>
-              <Button busy={busy === "pr" + r.id} onClick={async () => { if (await run("pr" + r.id, () => relay(signer!, "payRequest", [BigInt(r.id)]), `Paid ${cap(r.fromFamId)}`)) onPaid(); }}>
-                Pay
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 // ───────────────────────── dashboard ─────────────────────────
 
 function Dashboard({ acct }: { acct: Account }) {
@@ -115,11 +92,21 @@ function Dashboard({ acct }: { acct: Account }) {
   }, [refreshBalance]);
 
   const teens = useGql<{ User: { id: string; famId: string; level: number; frozen: boolean }[] }>(Q.teens, { f }, `t${f}`);
-  const pending = useGql<{ Pending: any[] }>(Q.pendingFamily, { f }, `p${f}`);
   const goals = useGql<{ Goal: any[] }>(Q.goalsFamily, { f }, `g${f}`);
   const timeline = useGql<{ TimelineEntry: any[] }>(Q.timelineFamily, { f }, `tl${f}`);
 
-  const waiting = (pending.data?.Pending ?? []).length + (goals.data?.Goal ?? []).filter((g) => g.status === "PROPOSED").length;
+  // Family-private summaries (missions, inbox, brief, FutureFund) come from the authenticated gateway.
+  const priv = usePrivate();
+  const toast = useToast();
+  const changed = useCallback(
+    async (until?: (b: Bundle) => boolean) => {
+      await refreshBalance();
+      if (!until) return void (await priv.refresh());
+      if (!(await priv.refreshUntil(until, 10000))) toast.ok("Confirmed on-chain. The summary is still catching up and will update shortly.");
+    },
+    [refreshBalance, priv, toast],
+  );
+  const teenList = teens.data?.User ?? [];
 
   return (
     <div className="grid items-start gap-5 lg:grid-cols-[1.15fr_1fr]">
@@ -143,9 +130,9 @@ function Dashboard({ acct }: { acct: Account }) {
         <p className="mt-3 text-xs text-dim">Test dollars have no real value. This is a prototype on a test network.</p>
       </Card>
 
-      <MoneyRequests me={signer!.address.toLowerCase()} onPaid={refreshBalance} />
+      <ApprovalInbox bundle={priv.bundle} onChanged={changed} />
 
-      <Approvals pending={pending.data?.Pending} goals={goals.data?.Goal} waiting={waiting} />
+      <ParentMissions teens={teenList} missions={priv.bundle?.data.missions ?? []} goals={priv.bundle?.data.goals ?? []} balance={balance ?? 0n} onChanged={changed} />
 
       <div className="space-y-4">
         <h2 className="text-lg font-bold">Your teens</h2>
@@ -157,6 +144,13 @@ function Dashboard({ acct }: { acct: Account }) {
 
     <div className="space-y-5">
       <InviteCard familyId={f} />
+
+      <WeeklyBrief bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error} />
+
+      <ParentFutureFund
+        teens={teenList} funds={priv.bundle?.data.funds ?? []} entries={priv.bundle?.data.fundEntries ?? []}
+        missions={priv.bundle?.data.missions ?? []} balance={balance ?? 0n} onChanged={changed} fetchedAt={priv.fetchedAt} error={priv.error}
+      />
 
       <Card title="Goals and gifts">
         {goals.data?.Goal.length ? (
@@ -181,66 +175,6 @@ function Dashboard({ acct }: { acct: Account }) {
 }
 
 // ───────────────────────── approvals ─────────────────────────
-
-function Approvals({ pending, goals, waiting }: { pending?: any[]; goals?: any[]; waiting: number }) {
-  const { signer } = useWallet();
-  const { busy, run } = useAct();
-  const now = useNow(1000) / 1000;
-  const proposed = (goals ?? []).filter((g) => g.status === "PROPOSED");
-
-  return (
-    <Card
-      title="Needs your OK"
-      right={waiting > 0 ? <Pill tone="sun">{waiting} waiting</Pill> : <Pill tone="mint">all clear</Pill>}
-    >
-      {waiting === 0 && <Empty>Nothing is waiting. You&apos;ll only hear from us when something unusual happens.</Empty>}
-      <div className="space-y-3">
-        {(pending ?? []).map((p) => {
-          const over = p.kind === "OVER_LIMIT";
-          const left = Math.max(0, Number(p.releaseAt) - now);
-          return (
-            <div key={p.id} className="rounded-xl border border-warn/30 bg-warn/10 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="font-semibold">
-                  {cap(p.fromFamId)} wants to pay {cap(p.toFamId)} <span className="num">{fmt(big(p.amount))}</span>
-                </p>
-                <Pill tone="sun">{over ? "over today's limit" : "looks unusual"}</Pill>
-              </div>
-              <p className="mt-1 text-sm text-muted">
-                {over
-                  ? "This is more than the daily limit, so it waits for you."
-                  : left > 0
-                    ? `On a short hold (${Math.ceil(left)}s left). If you do nothing, ${cap(p.fromFamId)} can release it afterwards.`
-                    : "The hold is over. You can still reject it before it's released."}
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Button busy={busy === "a" + p.id} onClick={() => run("a" + p.id, () => relay(signer!, "approvePending", [BigInt(p.id)]), "Approved")}>Approve</Button>
-                <Button variant="danger" busy={busy === "r" + p.id} onClick={() => run("r" + p.id, () => relay(signer!, "rejectPending", [BigInt(p.id)]), "Rejected. The money went back.")}>
-                  Reject
-                </Button>
-              </div>
-            </div>
-          );
-        })}
-        {proposed.map((g) => (
-          <div key={g.id} className="rounded-xl border border-line p-4">
-            <p className="font-semibold">
-              {cap(g.teenFamId)} wants to save <span className="num">{fmt(big(g.target))}</span> for &ldquo;{g.memo}&rdquo;
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button busy={busy === "g" + g.id} onClick={() => run("g" + g.id, () => relay(signer!, "approveGoal", [BigInt(g.id), true]), "Goal approved and open for gifts")}>
-                Approve and open for gifts
-              </Button>
-              <Button variant="ghost" busy={busy === "gp" + g.id} onClick={() => run("gp" + g.id, () => relay(signer!, "approveGoal", [BigInt(g.id), false]), "Goal approved")}>
-                Approve (no gifts)
-              </Button>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
 
 // ───────────────────────── a teen's controls ─────────────────────────
 
