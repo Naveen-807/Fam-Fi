@@ -23,6 +23,11 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
     enum RefKind { NONE, SPLIT, REQUEST }
     enum GoalStatus { NONE, PROPOSED, ACTIVE, COMPLETE, CLOSED }
     enum ReqStatus { NONE, OPEN, PAID }
+    /// ACTIVE -> SUBMITTED -> APPROVED (paid once) | REJECTED -> SUBMITTED again (before the deadline);
+    /// ACTIVE | REJECTED -> CANCELLED (parent) or EXPIRED (anyone, after the deadline), both refund the parent.
+    enum MissionStatus { NONE, ACTIVE, SUBMITTED, REJECTED, APPROVED, CANCELLED, EXPIRED }
+    /// OPEN -> RELEASED (parent releases early, or the teen claims after the horizon).
+    enum FundStatus { NONE, OPEN, RELEASED }
 
     struct Account {
         Role role;
@@ -110,6 +115,27 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
         ReqStatus status;
     }
 
+    /// @notice A reward the parent has committed up front. The reward leaves the parent's spendable balance at creation.
+    struct Mission {
+        address parent;
+        address teen;
+        uint128 reward;
+        uint64 deadline;
+        uint64 submittedAt;
+        uint256 goalId; // optional savings goal the reward is saved into on approval (0 = none)
+        MissionStatus status;
+    }
+
+    /// @notice Money a parent locks for a teen's long-term future. It is tracked and held inside Fam-Fi; it is NOT invested.
+    struct FutureFund {
+        address parent;
+        address teen;
+        uint128 target;
+        uint128 funded;
+        uint64 horizon;
+        FundStatus status;
+    }
+
     // ───────────────────────────── storage ─────────────────────────────
     IERC20 public immutable token;
 
@@ -147,6 +173,18 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
     uint256 public requestCount;
     mapping(uint256 => Request) public requests;
 
+    uint256 public constant MAX_OPEN_MISSIONS = 10;
+    uint256 public constant MAX_MISSION_SECONDS = 365 days;
+    uint256 public constant MAX_FUND_SECONDS = 40 * 365 days;
+    uint256 public missionCount;
+    mapping(uint256 => Mission) public missions;
+    mapping(address => uint256) public openMissions; // per teen: ACTIVE + SUBMITTED + REJECTED
+    uint256 public missionEscrow; // rewards currently reserved by open missions
+
+    uint256 public fundCount;
+    mapping(uint256 => FutureFund) public funds;
+    uint256 public fundEscrow; // contributions currently locked in OPEN funds
+
     bytes32 private constant INVITE_TYPEHASH = keccak256(
         "Invite(uint32 familyId,bytes32 inviteId,uint256 deadline,uint128[4] levelLimits,uint128 newPayeeThreshold,uint128 firstDayCap,uint32 holdSeconds,bool strictHolds)"
     );
@@ -178,6 +216,15 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
     event SplitSharePaid(uint256 indexed splitId, address indexed payer, uint32 paidCount);
     event RequestCreated(uint256 indexed requestId, address indexed from, address indexed to, uint128 amount, string memo);
     event RequestPaid(uint256 indexed requestId);
+    event MissionCreated(uint256 indexed missionId, address indexed parent, address indexed teen, uint128 reward, uint64 deadline, uint256 goalId, string title, string description);
+    event MissionSubmitted(uint256 indexed missionId, address indexed teen);
+    event MissionRejected(uint256 indexed missionId, address indexed teen, string feedback);
+    event MissionApproved(uint256 indexed missionId, address indexed teen, uint128 reward, bool savedToGoal);
+    event MissionCancelled(uint256 indexed missionId, uint128 refunded);
+    event MissionExpired(uint256 indexed missionId, uint128 refunded);
+    event FundCreated(uint256 indexed fundId, address indexed parent, address indexed teen, uint128 target, uint64 horizon, string name, string purpose);
+    event FundContributed(uint256 indexed fundId, address indexed parent, uint128 amount, uint128 funded);
+    event FundReleased(uint256 indexed fundId, address indexed teen, uint128 amount, bool byTeen);
 
     constructor(IERC20 token_, address trustedForwarder_)
         ERC2771Context(trustedForwarder_)
@@ -507,6 +554,144 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
         _pay(r.to, r.from, r.amount, RefKind.REQUEST, id, "request");
     }
 
+    // ───────────────────────────── missions ─────────────────────────────
+
+    /// @notice A parent commits a fixed reward for a task. The reward is taken from their spendable balance now
+    /// and can only go to the teen (on approval) or back to the parent (cancel / expiry).
+    function createMission(
+        address teen,
+        uint128 reward,
+        uint64 deadline,
+        uint256 goalId,
+        string calldata title,
+        string calldata description
+    ) external returns (uint256 id) {
+        address parent = _msgSender();
+        _requireParentOf(parent, teen);
+        require(!teenCfg[teen].frozen, "frozen");
+        require(reward > 0, "zero");
+        require(balance[parent] >= reward, "insufficient");
+        require(deadline > block.timestamp && deadline <= block.timestamp + MAX_MISSION_SECONDS, "bad deadline");
+        require(bytes(title).length > 0 && bytes(title).length <= 80, "bad title");
+        require(bytes(description).length <= 280, "bad description");
+        require(openMissions[teen] < MAX_OPEN_MISSIONS, "too many missions");
+        if (goalId != 0) require(goals[goalId].teen == teen, "not your goal");
+
+        balance[parent] -= reward;
+        missionEscrow += reward;
+        openMissions[teen] += 1;
+        id = ++missionCount;
+        missions[id] = Mission(parent, teen, reward, deadline, 0, goalId, MissionStatus.ACTIVE);
+        emit MissionCreated(id, parent, teen, reward, deadline, goalId, title, description);
+    }
+
+    /// @notice The teen says the task is done. Allowed again after a rejection, until the deadline.
+    function submitMission(uint256 id) external {
+        Mission storage m = missions[id];
+        require(m.teen == _msgSender(), "not your mission");
+        require(m.status == MissionStatus.ACTIVE || m.status == MissionStatus.REJECTED, "not open");
+        require(block.timestamp <= m.deadline, "mission ended");
+        require(!teenCfg[m.teen].frozen, "frozen");
+        m.status = MissionStatus.SUBMITTED;
+        m.submittedAt = uint64(block.timestamp);
+        emit MissionSubmitted(id, m.teen);
+    }
+
+    /// @notice The parent accepts the work. The reward is paid exactly once: the status leaves SUBMITTED first.
+    function approveMission(uint256 id) external {
+        Mission storage m = missions[id];
+        require(m.status == MissionStatus.SUBMITTED, "not submitted");
+        require(m.parent == _msgSender(), "not your mission");
+        m.status = MissionStatus.APPROVED;
+        missionEscrow -= m.reward;
+        openMissions[m.teen] -= 1;
+        balance[m.teen] += m.reward;
+        bool toGoal;
+        if (m.goalId != 0) {
+            Goal storage g = goals[m.goalId];
+            if (g.teen == m.teen && g.status == GoalStatus.ACTIVE && m.reward <= g.target - g.saved - g.matched) {
+                _save(m.goalId, m.teen, m.reward);
+                toGoal = true;
+            }
+        }
+        emit MissionApproved(id, m.teen, m.reward, toGoal);
+    }
+
+    /// @notice The parent sends the work back with feedback. The reward stays reserved; the teen may resubmit before the deadline.
+    function rejectMission(uint256 id, string calldata feedback) external {
+        Mission storage m = missions[id];
+        require(m.status == MissionStatus.SUBMITTED, "not submitted");
+        require(m.parent == _msgSender(), "not your mission");
+        require(bytes(feedback).length <= 140, "bad feedback");
+        m.status = MissionStatus.REJECTED;
+        emit MissionRejected(id, m.teen, feedback);
+    }
+
+    /// @notice The parent takes the reward back before it is submitted (or after a rejection).
+    function cancelMission(uint256 id) external {
+        Mission storage m = missions[id];
+        require(m.parent == _msgSender(), "not your mission");
+        require(m.status == MissionStatus.ACTIVE || m.status == MissionStatus.REJECTED, "not open");
+        m.status = MissionStatus.CANCELLED;
+        _refundMission(m);
+        emit MissionCancelled(id, m.reward);
+    }
+
+    /// @notice Anyone may close an unsubmitted mission once its deadline has passed; the reward returns to the parent.
+    function expireMission(uint256 id) external {
+        Mission storage m = missions[id];
+        require(m.status == MissionStatus.ACTIVE || m.status == MissionStatus.REJECTED, "not open");
+        require(block.timestamp > m.deadline, "not ended");
+        m.status = MissionStatus.EXPIRED;
+        _refundMission(m);
+        emit MissionExpired(id, m.reward);
+    }
+
+    // ───────────────────────────── FutureFund ─────────────────────────────
+
+    /// @notice A parent opens a long-term fund for a teen. Money in it is locked inside Fam-Fi and is not invested.
+    function createFutureFund(address teen, uint128 target, uint64 horizon, string calldata name, string calldata purpose)
+        external
+        returns (uint256 id)
+    {
+        address parent = _msgSender();
+        _requireParentOf(parent, teen);
+        require(target > 0, "zero");
+        require(horizon > block.timestamp && horizon <= block.timestamp + MAX_FUND_SECONDS, "bad horizon");
+        require(bytes(name).length > 0 && bytes(name).length <= 60, "bad name");
+        require(bytes(purpose).length <= 200, "bad purpose");
+        id = ++fundCount;
+        funds[id] = FutureFund(parent, teen, target, 0, horizon, FundStatus.OPEN);
+        emit FundCreated(id, parent, teen, target, horizon, name, purpose);
+    }
+
+    function contributeFutureFund(uint256 id, uint128 amount) external {
+        FutureFund storage f = funds[id];
+        require(f.status == FundStatus.OPEN, "fund not open");
+        require(f.parent == _msgSender(), "not your fund");
+        require(amount > 0, "zero");
+        require(balance[f.parent] >= amount, "insufficient");
+        balance[f.parent] -= amount;
+        f.funded += amount;
+        fundEscrow += amount;
+        emit FundContributed(id, f.parent, amount, f.funded);
+    }
+
+    /// @notice The parent hands the whole fund to the teen's spendable balance early.
+    function releaseFutureFund(uint256 id) external {
+        FutureFund storage f = funds[id];
+        require(f.parent == _msgSender(), "not your fund");
+        _releaseFund(id, f, false);
+    }
+
+    /// @notice The teen claims the fund once the horizon the family chose has passed.
+    function claimFutureFund(uint256 id) external {
+        FutureFund storage f = funds[id];
+        require(f.teen == _msgSender(), "not your fund");
+        require(block.timestamp >= f.horizon, "not yet");
+        _releaseFund(id, f, true);
+    }
+
     // ───────────────────────────── views ─────────────────────────────
 
     function getTeenCfg(address teen) external view returns (TeenCfg memory) {
@@ -538,6 +723,21 @@ contract FamFi is ERC2771Context, ReentrancyGuard, EIP712 {
     }
 
     // ───────────────────────────── internals ─────────────────────────────
+
+    function _refundMission(Mission storage m) internal {
+        missionEscrow -= m.reward;
+        openMissions[m.teen] -= 1;
+        balance[m.parent] += m.reward;
+    }
+
+    function _releaseFund(uint256 id, FutureFund storage f, bool byTeen) internal {
+        require(f.status == FundStatus.OPEN, "fund not open");
+        require(f.funded > 0, "nothing in fund");
+        f.status = FundStatus.RELEASED;
+        fundEscrow -= f.funded;
+        balance[f.teen] += f.funded;
+        emit FundReleased(id, f.teen, f.funded, byTeen);
+    }
 
     function _register(address user, bytes32 famId, Role role, uint32 familyId) internal {
         require(accounts[user].role == Role.NONE, "already registered");
