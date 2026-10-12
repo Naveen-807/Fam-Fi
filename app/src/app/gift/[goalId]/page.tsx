@@ -43,7 +43,7 @@ export default function GiftPage() {
           </Card>
 
           {!signer ? (
-            <SignIn title="Give a gift" blurb="Sign in with your email. It takes a minute, and you never need a wallet." personas={[{ name: "aunt", label: "Judge Mode: Aunt" }]} />
+            <SignIn title="Give a gift" blurb="Sign in with your email. It takes a minute, and you never need a wallet." />
           ) : !loaded ? (
             <Empty>Loading…</Empty>
           ) : !acct || acct.role === ROLE.NONE ? (

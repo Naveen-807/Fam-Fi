@@ -15,6 +15,7 @@ type Family {
   parent: String!
   parentFamId: String!
   createdAt: Int!
+  tzOffset: Int! # seconds from UTC; weeks and days are cut in this local time
 }
 
 type Stream {
@@ -125,5 +126,107 @@ type TimelineEntry {
   counterparty: String # address of the other person, if any
   familyId: Int! # family of the actor (0 if none)
   counterpartyFamilyId: Int!
+  txHash: String!
+}
+
+# ── missions ──
+# A parent-funded task. status: ACTIVE | SUBMITTED | REJECTED | APPROVED | CANCELLED | EXPIRED
+# Title, description and feedback are public on-chain text (kept short on purpose).
+type Mission {
+  id: ID!
+  familyId: Int!
+  parent: String!
+  parentFamId: String!
+  teen: String!
+  teenFamId: String!
+  reward: BigInt!
+  deadline: Int!
+  goalId: String! # "0" when not linked to a savings goal
+  status: String!
+  title: String!
+  description: String!
+  feedback: String! # the parent's last rejection note, if any
+  createdAt: Int!
+  submittedAt: Int!
+  resolvedAt: Int! # 0 until approved, cancelled or expired
+  savedToGoal: Boolean!
+  txHash: String! # creating transaction
+  lastTxHash: String! # most recent transition
+}
+
+# ── Progress Passport ──
+# One row per confirmed, qualifying action. Its id is the source event, so a replayed event can never count twice.
+# kind: MISSION_APPROVED | SAVED | GOAL_COMPLETED | PAYMENT
+type ProgressEvent {
+  id: ID! # txHash-logIndex
+  teen: String!
+  familyId: Int!
+  kind: String!
+  amount: BigInt!
+  text: String!
+  weekId: String!
+  ts: Int!
+  blockNumber: Int!
+  txHash: String!
+}
+
+# Running totals per teen. Counts and base-unit sums of responsible actions only; there is no score.
+type TeenProgress {
+  id: ID! # teen address
+  familyId: Int!
+  teenFamId: String!
+  missionsCompleted: Int!
+  missionRewards: BigInt!
+  savedTotal: BigInt! # the teen's own savings contributions (a mission reward saved to a goal also counts here)
+  goalsCompleted: Int!
+  paymentsCompleted: Int! # payments that settled inside the family's rules
+  lastEventTs: Int!
+  lastEventBlock: Int!
+}
+
+# The same totals per teen per local week (Monday start, in the family's time zone).
+type WeeklyStat {
+  id: ID! # teen-week
+  teen: String!
+  teenFamId: String!
+  familyId: Int!
+  week: Int!
+  weekStart: Int! # UTC timestamp of local Monday 00:00
+  missionsCompleted: Int!
+  missionRewards: BigInt!
+  savedTotal: BigInt!
+  goalsCompleted: Int!
+  paymentsCompleted: Int!
+  allowanceFunded: BigInt!
+  heldCount: Int!
+}
+
+# ── FutureFund: tracked and locked inside Fam-Fi. Never invested. ──
+type FutureFund {
+  id: ID!
+  familyId: Int!
+  parent: String!
+  teen: String!
+  teenFamId: String!
+  name: String!
+  purpose: String!
+  target: BigInt!
+  funded: BigInt!
+  horizon: Int!
+  status: String! # OPEN | RELEASED
+  createdAt: Int!
+  releasedAt: Int!
+}
+
+type FundEntry {
+  id: ID! # txHash-logIndex
+  fundId: String!
+  teen: String!
+  familyId: Int!
+  kind: String! # CREATED | CONTRIBUTED | RELEASED
+  amount: BigInt!
+  text: String!
+  ts: Int!
+  blockNumber: Int!
   txHash: String!
 }

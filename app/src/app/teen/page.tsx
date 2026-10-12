@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button, Card, Empty, Field, GoalCard, Input, Money, Pill, Proof, Shell, SignIn, Timeline, useToast } from "@/components/ui";
 import { QR } from "@/components/qr";
@@ -10,6 +10,10 @@ import { Q, useGql } from "@/lib/gql";
 import { useAct, useMe, useNow, useTeenView } from "@/lib/hooks";
 import { useWallet } from "@/lib/wallet";
 import { big, cap, fmt, parseAmount } from "@/lib/format";
+import { usePrivate, type Bundle } from "@/lib/private";
+import { TeenMissions } from "@/components/missions";
+import { Passport } from "@/components/passport";
+import { TeenFutureFund } from "@/components/futurefund";
 
 export default function TeenPage() {
   return (
@@ -29,7 +33,6 @@ function TeenInner() {
         <SignIn
           title="Teen sign in"
           blurb="Pay friends by name, save toward goals, and watch your limit grow."
-          personas={[{ name: "alex", label: "Judge Mode: Alex" }, { name: "riya", label: "Judge Mode: Riya" }]}
         />
       </Shell>
     );
@@ -64,6 +67,16 @@ function Dashboard({ acct }: { acct: Account }) {
   const now = useNow(250);
   const [tab, setTab] = useState<"home" | "timeline">("home");
   const timeline = useGql<{ TimelineEntry: any[] }>(Q.timelineOf, { a: me }, `tl${me}`);
+  const priv = usePrivate();
+  const toast = useToast();
+  const changed = useCallback(
+    async (until?: (b: Bundle) => boolean) => {
+      await refresh();
+      if (!until) return void (await priv.refresh());
+      if (!(await priv.refreshUntil(until, 10000))) toast.ok("Confirmed on-chain. The summary is still catching up and will update shortly.");
+    },
+    [refresh, priv, toast],
+  );
 
   if (!view) return <Empty>Loading your account…</Empty>;
   const spendable = liveSpendable(view, now);
@@ -111,9 +124,12 @@ function Dashboard({ acct }: { acct: Account }) {
           <div className="space-y-5">
             <PayCard acct={acct} onDone={refresh} />
             <Held me={me} view={view} onDone={refresh} />
+            <TeenMissions missions={priv.bundle?.data.missions ?? []} frozen={view.frozen} onChanged={changed} />
             <Requests acct={acct} me={me} onDone={refresh} />
           </div>
           <div className="space-y-5">
+            <Passport bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error} />
+            <TeenFutureFund bundle={priv.bundle} onChanged={changed} fetchedAt={priv.fetchedAt} error={priv.error} />
             <Goals acct={acct} me={me} view={view} onDone={refresh} />
             <SplitCard onDone={refresh} />
           </div>

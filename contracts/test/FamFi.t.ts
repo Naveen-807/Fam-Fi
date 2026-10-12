@@ -13,6 +13,8 @@ const PendingKind = { OVER_LIMIT: 0, ANOMALY: 1 };
 const PStatus = { NONE: 0, OPEN: 1, EXECUTED: 2, REJECTED: 3, CANCELLED: 4 };
 const GStatus = { NONE: 0, PROPOSED: 1, ACTIVE: 2, COMPLETE: 3, CLOSED: 4 };
 const ReqStatus = { NONE: 0, OPEN: 1, PAID: 2 };
+const MStatus = { NONE: 0, ACTIVE: 1, SUBMITTED: 2, REJECTED: 3, APPROVED: 4, CANCELLED: 5, EXPIRED: 6 };
+const FStatus = { NONE: 0, OPEN: 1, RELEASED: 2 };
 
 type Terms = {
   levelLimits: bigint[];
@@ -97,6 +99,8 @@ async function totalLedger(ctx: any, addrs: string[]) {
   }
   const gfc = Number(await fam.giftCount());
   for (let i = 1; i <= gfc; i++) sum += (await fam.gifts(i)).escrow;
+  sum += await fam.missionEscrow();
+  sum += await fam.fundEscrow();
   return sum;
 }
 
@@ -563,5 +567,323 @@ describe("FamFi: randomized money-conservation invariant", () => {
     // the fuzz must really exercise the contract, not just revert
     expect(ok).to.be.greaterThan(25);
     expect(okOps.size).to.be.greaterThan(4);
+  });
+});
+
+// ───────────────────────────── missions ─────────────────────────────
+
+async function newMission(ctx: any, reward = U(10), goalId = 0n, days = 7) {
+  const { fam, parent, teen } = ctx;
+  const deadline = (await time.latest()) + days * DAY;
+  await fam.connect(parent).createMission(teen.address, reward, deadline, goalId, "Wash the car", "Inside and out");
+  return { id: await fam.missionCount(), deadline };
+}
+
+describe("FamFi: funded money missions", () => {
+  it("create reserves the reward from the parent; approve pays the teen exactly once", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen } = ctx;
+    const p0 = await fam.balance(parent.address);
+    const t0 = await fam.balance(teen.address);
+    const { id } = await newMission(ctx, U(10));
+    expect(await fam.balance(parent.address)).to.equal(p0 - U(10));
+    expect(await fam.missionEscrow()).to.equal(U(10));
+    expect((await fam.missions(id)).status).to.equal(MStatus.ACTIVE);
+    await expectInvariant(ctx);
+
+    await expect(fam.connect(teen).submitMission(id)).to.emit(fam, "MissionSubmitted").withArgs(id, teen.address);
+    expect((await fam.missions(id)).status).to.equal(MStatus.SUBMITTED);
+    await expect(fam.connect(parent).approveMission(id)).to.emit(fam, "MissionApproved").withArgs(id, teen.address, U(10), false);
+    expect(await fam.balance(teen.address)).to.equal(t0 + U(10));
+    expect(await fam.missionEscrow()).to.equal(0n);
+    expect(await fam.openMissions(teen.address)).to.equal(0n);
+    await expectInvariant(ctx);
+
+    // replay: a second approval, a cancel, an expiry and a resubmit all fail; nothing moves
+    await expect(fam.connect(parent).approveMission(id)).to.be.revertedWith("not submitted");
+    await expect(fam.connect(parent).cancelMission(id)).to.be.revertedWith("not open");
+    await time.increase(8 * DAY);
+    await expect(fam.expireMission(id)).to.be.revertedWith("not open");
+    await expect(fam.connect(teen).submitMission(id)).to.be.revertedWith("not open");
+    expect(await fam.balance(teen.address)).to.equal(t0 + U(10));
+    await expectInvariant(ctx);
+  });
+
+  it("reserved rewards cannot be spent, streamed, locked or paid elsewhere", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, sponsor } = ctx;
+    const bal = await fam.balance(parent.address);
+    await newMission(ctx, bal); // reserve everything
+    expect(await fam.balance(parent.address)).to.equal(0n);
+    await expect(fam.connect(parent).pay(fid("aunt"), U(1), "x")).to.be.revertedWith("insufficient");
+    await expect(fam.connect(parent).fundStream(ctx.teen.address, U(1), 1n)).to.be.revertedWith("insufficient");
+    await expect(fam.connect(parent).createMission(ctx.teen.address, U(1), (await time.latest()) + DAY, 0, "t", "")).to.be.revertedWith("insufficient");
+    await expect(fam.connect(parent).createFutureFund(ctx.teen.address, U(5), (await time.latest()) + DAY, "f", "")).not.to.be.reverted;
+    await expect(fam.connect(parent).contributeFutureFund(1, U(1))).to.be.revertedWith("insufficient");
+    await expectInvariant(ctx);
+  });
+
+  it("only the designated parent creates; only that teen submits; only that parent decides", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen, friend, stranger, sponsor } = ctx;
+    const dl = (await time.latest()) + DAY;
+    // a second family: stranger becomes a parent of their own, with no teens
+    await fam.connect(stranger).register(fid("otherparent"), Role.PARENT);
+    await fam.connect(stranger).createFamily(0);
+    await expect(fam.connect(stranger).createMission(teen.address, U(1), dl, 0, "t", "")).to.be.revertedWith("not parent of teen");
+    await expect(fam.connect(sponsor).createMission(teen.address, U(1), dl, 0, "t", "")).to.be.revertedWith("not parent of teen");
+    await expect(fam.connect(teen).createMission(teen.address, U(1), dl, 0, "t", "")).to.be.revertedWith("not parent of teen");
+
+    const { id } = await newMission(ctx);
+    await expect(fam.connect(friend).submitMission(id)).to.be.revertedWith("not your mission"); // another teen
+    await expect(fam.connect(parent).submitMission(id)).to.be.revertedWith("not your mission");
+    await fam.connect(teen).submitMission(id);
+    await expect(fam.connect(stranger).approveMission(id)).to.be.revertedWith("not your mission");
+    await expect(fam.connect(teen).approveMission(id)).to.be.revertedWith("not your mission");
+    await expect(fam.connect(stranger).rejectMission(id, "no")).to.be.revertedWith("not your mission");
+    await expect(fam.connect(teen).rejectMission(id, "no")).to.be.revertedWith("not your mission");
+    await expect(fam.connect(stranger).cancelMission(id)).to.be.revertedWith("not your mission");
+    await expectInvariant(ctx);
+  });
+
+  it("reject keeps the reward reserved, allows a resubmit before the deadline, then approve pays once", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen } = ctx;
+    const { id } = await newMission(ctx, U(6));
+    await expect(fam.connect(parent).rejectMission(id, "too early")).to.be.revertedWith("not submitted");
+    await fam.connect(teen).submitMission(id);
+    await expect(fam.connect(parent).rejectMission(id, "Missed a spot")).to.emit(fam, "MissionRejected").withArgs(id, teen.address, "Missed a spot");
+    expect((await fam.missions(id)).status).to.equal(MStatus.REJECTED);
+    expect(await fam.missionEscrow()).to.equal(U(6));
+    await expect(fam.connect(parent).approveMission(id)).to.be.revertedWith("not submitted");
+    await fam.connect(teen).submitMission(id);
+    const t0 = await fam.balance(teen.address);
+    await fam.connect(parent).approveMission(id);
+    expect(await fam.balance(teen.address)).to.equal(t0 + U(6));
+    await expectInvariant(ctx);
+  });
+
+  it("cancel and expiry refund the parent exactly once; submitted missions never expire", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen, stranger } = ctx;
+    const p0 = await fam.balance(parent.address);
+    const a = await newMission(ctx, U(4));
+    const b = await newMission(ctx, U(5));
+    const c = await newMission(ctx, U(7));
+
+    await fam.connect(parent).cancelMission(a.id);
+    expect((await fam.missions(a.id)).status).to.equal(MStatus.CANCELLED);
+    await expect(fam.connect(parent).cancelMission(a.id)).to.be.revertedWith("not open");
+
+    await expect(fam.expireMission(b.id)).to.be.revertedWith("not ended");
+    await fam.connect(teen).submitMission(c.id);
+    await time.increase(8 * DAY);
+    await expect(fam.connect(teen).submitMission(b.id)).to.be.revertedWith("mission ended");
+    await expect(fam.connect(stranger).expireMission(b.id)).to.emit(fam, "MissionExpired").withArgs(b.id, U(5)); // anyone may
+    await expect(fam.expireMission(b.id)).to.be.revertedWith("not open");
+    await expect(fam.expireMission(c.id)).to.be.revertedWith("not open"); // submitted: the parent decides
+    await expect(fam.connect(parent).cancelMission(c.id)).to.be.revertedWith("not open");
+    expect(await fam.balance(parent.address)).to.equal(p0 - U(7)); // only c is still reserved
+    expect(await fam.missionEscrow()).to.equal(U(7));
+    await fam.connect(parent).approveMission(c.id); // approving after the deadline is still the parent's call
+    expect(await fam.missionEscrow()).to.equal(0n);
+    await expectInvariant(ctx);
+  });
+
+  it("a rejected mission past its deadline can be expired and refunded", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen } = ctx;
+    const p0 = await fam.balance(parent.address);
+    const { id } = await newMission(ctx, U(3), 0n, 1);
+    await fam.connect(teen).submitMission(id);
+    await fam.connect(parent).rejectMission(id, "no");
+    await time.increase(2 * DAY);
+    await fam.expireMission(id);
+    expect(await fam.balance(parent.address)).to.equal(p0);
+    await expectInvariant(ctx);
+  });
+
+  it("enforces bounds on reward, deadline, text, goal ownership and open-mission count", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen, friend } = ctx;
+    const now = await time.latest();
+    const mk = (r: bigint, d: number, g = 0n, t = "ok", ds = "") => fam.connect(parent).createMission(teen.address, r, d, g, t, ds);
+    await expect(mk(0n, now + DAY)).to.be.revertedWith("zero");
+    await expect(mk(U(1), now - 1)).to.be.revertedWith("bad deadline");
+    await expect(mk(U(1), now + 366 * DAY)).to.be.revertedWith("bad deadline");
+    await expect(mk(U(1), now + DAY, 0n, "")).to.be.revertedWith("bad title");
+    await expect(mk(U(1), now + DAY, 0n, "x".repeat(81))).to.be.revertedWith("bad title");
+    await expect(mk(U(1), now + DAY, 0n, "ok", "x".repeat(281))).to.be.revertedWith("bad description");
+    await expect(mk(U(1), now + DAY, 99n)).to.be.revertedWith("not your goal");
+    // a goal that belongs to a different teen is refused
+    await fam.connect(friend).proposeGoal(U(10), now + 30 * DAY, 0, "mine");
+    await expect(mk(U(1), now + DAY, await fam.goalCount())).to.be.revertedWith("not your goal");
+    for (let i = 0; i < 10; i++) await mk(U(1), now + 5 * DAY);
+    await expect(mk(U(1), now + 5 * DAY)).to.be.revertedWith("too many missions");
+    await expectInvariant(ctx);
+  });
+
+  it("respects freeze: no new missions or submissions, but the parent can always settle", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen } = ctx;
+    const { id } = await newMission(ctx, U(2));
+    await fam.connect(parent).freeze(teen.address);
+    await expect(fam.connect(teen).submitMission(id)).to.be.revertedWith("frozen");
+    await expect(fam.connect(parent).createMission(teen.address, U(1), (await time.latest()) + DAY, 0, "t", "")).to.be.revertedWith("frozen");
+    await fam.connect(parent).unfreeze(teen.address);
+    await fam.connect(teen).submitMission(id);
+    await fam.connect(parent).freeze(teen.address);
+    await fam.connect(parent).approveMission(id); // earning is not spending; the reward still arrives
+    await expectInvariant(ctx);
+  });
+
+  it("approval saves into a linked active goal (and unlocks the match), else falls back to the balance", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen, sponsor } = ctx;
+    const goal = await openGoal(ctx, U(40), 0);
+    await fam.connect(sponsor).lockMatch(goal.id, U(10), 1_000_000n, goal.deadline);
+    const { id } = await newMission(ctx, U(10), goal.id);
+    await fam.connect(teen).submitMission(id);
+    const t0 = await fam.balance(teen.address);
+    await expect(fam.connect(parent).approveMission(id)).to.emit(fam, "MissionApproved").withArgs(id, teen.address, U(10), true);
+    const g = await fam.goals(goal.id);
+    expect(g.saved).to.equal(U(10));
+    expect(g.matched).to.equal(U(10));
+    expect(await fam.balance(teen.address)).to.equal(t0); // credited then saved, net zero
+    await expectInvariant(ctx);
+
+    // a goal that cannot take the reward (too big for the room left) falls back to the balance
+    const small = await openGoal(ctx, U(5), 0, false);
+    const m2 = await newMission(ctx, U(10), small.id);
+    await fam.connect(teen).submitMission(m2.id);
+    await expect(fam.connect(parent).approveMission(m2.id)).to.emit(fam, "MissionApproved").withArgs(m2.id, teen.address, U(10), false);
+    expect(await fam.balance(teen.address)).to.equal(t0 + U(10));
+    await expectInvariant(ctx);
+  });
+
+  it("gasless: the forwarded call keeps the real signer's identity", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, fwd, teen, parent, relayer } = ctx;
+    const { id } = await newMission(ctx, U(3));
+    const net = await ethers.provider.getNetwork();
+    const domain = { name: "FamFiForwarder", version: "1", chainId: net.chainId, verifyingContract: await fwd.getAddress() };
+    const types = {
+      ForwardRequest: [
+        { name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" },
+        { name: "gas", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint48" }, { name: "data", type: "bytes" },
+      ],
+    };
+    const send = async (who: HardhatEthersSigner, fn: string, args: any[]) => {
+      const data = fam.interface.encodeFunctionData(fn, args);
+      const nonce = await fwd.nonces(who.address);
+      const deadline = (await time.latest()) + 3600;
+      const msg = { from: who.address, to: await fam.getAddress(), value: 0n, gas: 500000n, nonce, deadline, data };
+      const signature = await who.signTypedData(domain, types, msg);
+      return fwd.connect(relayer).execute({ ...msg, signature });
+    };
+    await send(teen, "submitMission", [id]);
+    expect((await fam.missions(id)).status).to.equal(MStatus.SUBMITTED);
+    // the relayer cannot approve on the parent's behalf: a request signed by the teen is not the parent
+    await expect(send(teen, "approveMission", [id])).to.be.reverted;
+    await send(parent, "approveMission", [id]);
+    expect((await fam.missions(id)).status).to.equal(MStatus.APPROVED);
+    await expectInvariant(ctx);
+  });
+
+  it("randomized mission and fund operations keep the ledger reconciled", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen, stranger } = ctx;
+    let seed = 777;
+    const rnd = (n: number) => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff), seed % n);
+    let ok = 0;
+    for (let i = 0; i < 120; i++) {
+      const id = 1 + rnd(8);
+      const op = rnd(10);
+      try {
+        if (op === 0 || op === 1) await newMission(ctx, U(rnd(20) + 1), 0n, 1 + rnd(3));
+        else if (op === 2) await fam.connect(teen).submitMission(id);
+        else if (op === 3) await fam.connect(parent).approveMission(id);
+        else if (op === 4) await fam.connect(parent).rejectMission(id, "again");
+        else if (op === 5) await fam.connect(parent).cancelMission(id);
+        else if (op === 6) await fam.connect(stranger).expireMission(id);
+        else if (op === 7) await time.increase(rnd(2 * DAY));
+        else if (op === 8) await fam.connect(parent).createFutureFund(teen.address, U(50), (await time.latest()) + 3 * DAY, "fund", "later");
+        else await fam.connect(parent).contributeFutureFund(1 + rnd(3), U(rnd(10) + 1));
+        ok++;
+      } catch {
+        /* reverts are fine; the invariant must hold either way */
+      }
+      await expectInvariant(ctx);
+    }
+    expect(ok).to.be.greaterThan(40);
+  });
+});
+
+// ───────────────────────────── FutureFund ─────────────────────────────
+
+describe("FamFi: FutureFund (tracked and locked in Fam-Fi, not invested)", () => {
+  async function newFund(ctx: any, days = 30, target = U(100)) {
+    const { fam, parent, teen } = ctx;
+    const horizon = (await time.latest()) + days * DAY;
+    await fam.connect(parent).createFutureFund(teen.address, target, horizon, "College", "Books and a laptop");
+    return { id: await fam.fundCount(), horizon };
+  }
+
+  it("a parent funds it from their balance; the money is locked and counted separately", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen } = ctx;
+    const { id } = await newFund(ctx);
+    const p0 = await fam.balance(parent.address);
+    await expect(fam.connect(parent).contributeFutureFund(id, U(25))).to.emit(fam, "FundContributed").withArgs(id, parent.address, U(25), U(25));
+    expect(await fam.balance(parent.address)).to.equal(p0 - U(25));
+    expect((await fam.funds(id)).funded).to.equal(U(25));
+    expect(await fam.fundEscrow()).to.equal(U(25));
+    // the teen cannot spend it, and cannot claim early
+    await expect(fam.connect(teen).claimFutureFund(id)).to.be.revertedWith("not yet");
+    await expectInvariant(ctx);
+  });
+
+  it("only the parent creates, funds and releases early; only the teen claims, after the horizon", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen, stranger, friend } = ctx;
+    const h = (await time.latest()) + 5 * DAY;
+    await expect(fam.connect(teen).createFutureFund(teen.address, U(1), h, "x", "")).to.be.revertedWith("not parent of teen");
+    await expect(fam.connect(stranger).createFutureFund(teen.address, U(1), h, "x", "")).to.be.revertedWith("not parent of teen");
+    const { id, horizon } = await newFund(ctx, 5);
+    await expect(fam.connect(stranger).contributeFutureFund(id, U(1))).to.be.revertedWith("not your fund");
+    await expect(fam.connect(teen).contributeFutureFund(id, U(1))).to.be.revertedWith("not your fund");
+    await fam.connect(parent).contributeFutureFund(id, U(20));
+    await expect(fam.connect(teen).releaseFutureFund(id)).to.be.revertedWith("not your fund");
+    await expect(fam.connect(friend).claimFutureFund(id)).to.be.revertedWith("not your fund");
+    await expect(fam.connect(parent).claimFutureFund(id)).to.be.revertedWith("not your fund");
+    await time.increaseTo(horizon);
+    const t0 = await fam.balance(teen.address);
+    await expect(fam.connect(teen).claimFutureFund(id)).to.emit(fam, "FundReleased").withArgs(id, teen.address, U(20), true);
+    expect(await fam.balance(teen.address)).to.equal(t0 + U(20));
+    expect(await fam.fundEscrow()).to.equal(0n);
+    // once released: no second claim, no more contributions
+    await expect(fam.connect(teen).claimFutureFund(id)).to.be.revertedWith("fund not open");
+    await expect(fam.connect(parent).releaseFutureFund(id)).to.be.revertedWith("fund not open");
+    await expect(fam.connect(parent).contributeFutureFund(id, U(1))).to.be.revertedWith("fund not open");
+    await expectInvariant(ctx);
+  });
+
+  it("the parent can release early to the teen; empty funds and bad inputs are refused", async () => {
+    const ctx = await loadFixture(deployMatured);
+    const { fam, parent, teen } = ctx;
+    const now = await time.latest();
+    await expect(fam.connect(parent).createFutureFund(teen.address, 0n, now + DAY, "x", "")).to.be.revertedWith("zero");
+    await expect(fam.connect(parent).createFutureFund(teen.address, U(1), now - 1, "x", "")).to.be.revertedWith("bad horizon");
+    await expect(fam.connect(parent).createFutureFund(teen.address, U(1), now + 41 * 365 * DAY, "x", "")).to.be.revertedWith("bad horizon");
+    await expect(fam.connect(parent).createFutureFund(teen.address, U(1), now + DAY, "", "")).to.be.revertedWith("bad name");
+    await expect(fam.connect(parent).createFutureFund(teen.address, U(1), now + DAY, "x", "y".repeat(201))).to.be.revertedWith("bad purpose");
+    const { id } = await newFund(ctx);
+    await expect(fam.connect(parent).releaseFutureFund(id)).to.be.revertedWith("nothing in fund");
+    await expect(fam.connect(parent).contributeFutureFund(id, 0n)).to.be.revertedWith("zero");
+    await fam.connect(parent).contributeFutureFund(id, U(9));
+    const t0 = await fam.balance(teen.address);
+    await fam.connect(parent).releaseFutureFund(id);
+    expect(await fam.balance(teen.address)).to.equal(t0 + U(9));
+    await expectInvariant(ctx);
   });
 });

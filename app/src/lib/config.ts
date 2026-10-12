@@ -10,7 +10,5 @@ export const cfg = {
   envioWs: process.env.NEXT_PUBLIC_ENVIO_WS || "",
   explorerTx: process.env.NEXT_PUBLIC_EXPLORER_TX ?? "https://testnet.monadvision.com/tx/",
   networkLabel: process.env.NEXT_PUBLIC_NETWORK_LABEL || "Monad testnet",
-  // Ready-made demo people on the home page. Off by default: real use has no predefined accounts.
-  judgeMode: process.env.NEXT_PUBLIC_JUDGE_MODE === "1",
   dynamicEnvId: process.env.NEXT_PUBLIC_DYNAMIC_ENV_ID || "",
 };

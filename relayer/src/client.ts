@@ -4,10 +4,6 @@ import { readFileSync } from "fs";
 const FAMFI_ABI = JSON.parse(readFileSync(new URL("../../abi/FamFi.json", import.meta.url), "utf8"));
 const FORWARDER_ABI = JSON.parse(readFileSync(new URL("../../abi/FamFiForwarder.json", import.meta.url), "utf8"));
 
-/** Demo identities are derived from their name, so every service (and Judge Mode) agrees on them.
- *  These keys are PUBLIC BY DESIGN: they only ever hold valueless testnet tokens. */
-export const demoKey = (name: string) => ethers.id(`famfi-demo-${name}`);
-
 export const fid = (s: string) => ethers.encodeBytes32String(s);
 export const U = (n: number) => BigInt(Math.round(n * 1e6));
 
@@ -19,8 +15,6 @@ export type Terms = {
   holdSeconds: number;
   strictHolds: boolean;
 };
-/** Used only by local demo seeding and tests. Real parents choose their own in the app. */
-export const SEED_TERMS: Terms = { levelLimits: [U(5), U(8), U(12), U(20)], newPayeeThreshold: U(3), firstDayCap: U(2), holdSeconds: 600, strictHolds: false };
 
 export function makeClient(o: { rpcUrl: string; relayerUrl: string; famfi: string; forwarder: string }) {
   const provider = new ethers.JsonRpcProvider(o.rpcUrl, undefined, { staticNetwork: true });

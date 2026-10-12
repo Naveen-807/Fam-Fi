@@ -1,6 +1,12 @@
 import { createTestIndexer } from "envio";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
+
+// The test indexer refuses blocks before config.yaml's start_block (set to the real deploy block after deploying),
+// so replay from there instead of a hardcoded number.
+const CONFIG_START = Number(/start_block:\s*(\d+)/.exec(readFileSync(new URL("../config.yaml", import.meta.url), "utf8"))?.[1] ?? 0);
+const START = Math.max(100, CONFIG_START);
 
 const id32 = (s: string) => "0x" + Buffer.from(s).toString("hex").padEnd(64, "0");
 const PARENT = "0x00000000000000000000000000000000000000a1";
@@ -12,7 +18,7 @@ const U = (n: number) => BigInt(Math.round(n * 1e6));
 
 test("a family story becomes plain-language timeline and live entities", async () => {
   const indexer: any = createTestIndexer();
-  let block = 100;
+  let block = START;
   const ev = (event: string, params: any, extra: any = {}) => ({
     contract: "FamFi",
     event,
@@ -53,7 +59,7 @@ test("a family story becomes plain-language timeline and live entities", async (
     ev("Frozen", { teen: TEEN }),
   ];
 
-  await indexer.process({ chains: { 10143: { startBlock: 100, endBlock: block + 5, simulate } } });
+  await indexer.process({ chains: { 10143: { startBlock: START, endBlock: block + 5, simulate } } });
 
   const teen = await indexer.User.get(TEEN);
   assert.equal(teen.famId, "alex");
