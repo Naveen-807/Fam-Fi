@@ -7,7 +7,7 @@
     "codegen": "envio codegen",
     "dev": "envio dev",
     "start": "envio start",
-    "test": "tsx --test test/indexer.test.ts",
+    "test": "tsx --test test/indexer.test.ts test/missions.test.ts",
     "typecheck": "tsc --noEmit",
     "dev:local": "tsx dev-server.ts"
   },

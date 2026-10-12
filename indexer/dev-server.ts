@@ -24,7 +24,7 @@ const abi = JSON.parse(readFileSync(new URL("../abi/FamFi.json", import.meta.url
 const iface = new ethers.Interface(abi);
 const provider = new ethers.JsonRpcProvider(RPC, undefined, { staticNetwork: true });
 const indexer: any = createTestIndexer();
-const ENTITIES = ["User", "Family", "Stream", "Payment", "Pending", "Goal", "Gift", "Split", "SplitShare", "Request", "TimelineEntry"];
+const ENTITIES = ["User", "Family", "Stream", "Payment", "Pending", "Goal", "Gift", "Split", "SplitShare", "Request", "TimelineEntry", "Mission", "ProgressEvent", "TeenProgress", "WeeklyStat", "FutureFund", "FundEntry"];
 
 const blockTs = new Map<number, number>();
 async function tsOf(n: number) {

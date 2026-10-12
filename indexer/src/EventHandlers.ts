@@ -61,6 +61,87 @@ function timeline(
   });
 }
 
+
+// ───────────── Progress Passport helpers ─────────────
+const DAY = 86400;
+/** Local-week index (Monday start) of a UTC timestamp in a family's time zone. Day 0 (1970-01-01) was a Thursday. */
+export const weekOf = (tsSec: number, tz: number) => Math.floor((Math.floor((tsSec + tz) / DAY) + 3) / 7);
+/** UTC timestamp of local Monday 00:00 for a week index. */
+export const weekStartTs = (week: number, tz: number) => (week * 7 - 3) * DAY - tz;
+
+const blockNo = (e: { block: { number: number } }) => e.block.number;
+
+type Counters = {
+  missionsCompleted: number;
+  missionRewards: bigint;
+  savedTotal: bigint;
+  goalsCompleted: number;
+  paymentsCompleted: number;
+};
+const ZERO: Counters = { missionsCompleted: 0, missionRewards: 0n, savedTotal: 0n, goalsCompleted: 0, paymentsCompleted: 0 };
+
+function bump(c: Counters, kind: string, amount: bigint): Counters {
+  switch (kind) {
+    case "MISSION_APPROVED": return { ...c, missionsCompleted: c.missionsCompleted + 1, missionRewards: c.missionRewards + amount };
+    case "SAVED": return { ...c, savedTotal: c.savedTotal + amount };
+    case "GOAL_COMPLETED": return { ...c, goalsCompleted: c.goalsCompleted + 1 };
+    case "PAYMENT": return { ...c, paymentsCompleted: c.paymentsCompleted + 1 };
+    default: return c;
+  }
+}
+
+async function familyTz(context: Ctx, familyId: number): Promise<number> {
+  const f = await context.Family.get(String(familyId));
+  return f ? f.tzOffset : 0;
+}
+
+/**
+ * Record one confirmed, qualifying action for a teen. The ProgressEvent id is the source event (txHash-logIndex + kind),
+ * so replaying the same event is a no-op: totals can never count an action twice.
+ */
+async function recordProgress(
+  context: Ctx,
+  e: { transaction: { hash: string }; logIndex: number; block: { timestamp: number; number: number } },
+  teenAddr: string,
+  kind: string,
+  amount: bigint,
+  text: string,
+) {
+  const id = `${eid(e)}-${kind}`;
+  if (await context.ProgressEvent.get(id)) return;
+  const teen = await person(context, teenAddr);
+  if (!teen.user || teen.user.role !== "TEEN") return;
+  const tz = await familyTz(context, teen.familyId);
+  const week = weekOf(ts(e), tz);
+  const weekId = `${lc(teenAddr)}-${week}`;
+  context.ProgressEvent.set({
+    id, teen: lc(teenAddr), familyId: teen.familyId, kind, amount, text, weekId, ts: ts(e), blockNumber: blockNo(e), txHash: tx(e),
+  });
+  const wk = await getWeek(context, teenAddr, teen.user.famId, teen.familyId, week, tz);
+  // Context rows for the weekly brief only: they are not Passport achievements.
+  if (kind === "ALLOWANCE") return void context.WeeklyStat.set({ ...wk, allowanceFunded: wk.allowanceFunded + amount });
+  if (kind === "HELD") return void context.WeeklyStat.set({ ...wk, heldCount: wk.heldCount + 1 });
+  const total = await context.TeenProgress.get(lc(teenAddr));
+  context.TeenProgress.set({
+    id: lc(teenAddr),
+    familyId: teen.familyId,
+    teenFamId: teen.user.famId,
+    ...bump(total ?? ZERO, kind, amount),
+    lastEventTs: ts(e),
+    lastEventBlock: blockNo(e),
+  });
+  context.WeeklyStat.set({ ...wk, ...bump(wk, kind, amount) });
+}
+
+async function getWeek(context: Ctx, teenAddr: string, teenFamId: string, familyId: number, week: number, tz: number) {
+  const id = `${lc(teenAddr)}-${week}`;
+  return (
+    (await context.WeeklyStat.get(id)) ?? {
+      id, teen: lc(teenAddr), teenFamId, familyId, week, weekStart: weekStartTs(week, tz), ...ZERO, allowanceFunded: 0n, heldCount: 0,
+    }
+  );
+}
+
 const on = (event: string, handler: (args: any) => Promise<void>) =>
   (indexer as any).onEvent({ contract: "FamFi", event }, handler);
 
@@ -85,6 +166,7 @@ on("FamilyCreated", async ({ event, context }) => {
     parent: lc(event.params.parent),
     parentFamId: parent?.famId ?? "",
     createdAt: ts(event),
+    tzOffset: Number(event.params.tzOffset),
   });
   if (parent) context.User.set({ ...parent, familyId });
   timeline(context, event, {
@@ -141,6 +223,7 @@ on("StreamFunded", async ({ event, context }) => {
     counterpartyFamily: teen.familyId,
     amount: event.params.budget,
   });
+  await recordProgress(context, event, event.params.teen, "ALLOWANCE", event.params.budget, "Allowance funded");
 });
 
 // ───────────── payments ─────────────
@@ -168,6 +251,10 @@ on("Paid", async ({ event, context }) => {
     counterpartyFamily: to.familyId,
     amount: event.params.amount,
   });
+  // A Paid event only exists once money has really moved: inside the rules, approved by a parent, or released after a hold.
+  if (event.params.memo !== "goal") {
+    await recordProgress(context, event, event.params.from, "PAYMENT", event.params.amount, `Completed a payment to ${to.name}`);
+  }
 });
 
 on("PaymentHeld", async ({ event, context }) => {
@@ -204,6 +291,7 @@ on("PaymentHeld", async ({ event, context }) => {
     counterpartyFamily: to.familyId,
     amount: event.params.amount,
   });
+  await recordProgress(context, event, event.params.from, "HELD", event.params.amount, "Payment held");
 });
 
 on("PendingResolved", async ({ event, context }) => {
@@ -377,6 +465,7 @@ on("GoalSaved", async ({ event, context }) => {
     actorFamily: g.familyId,
     amount: event.params.amount,
   });
+  await recordProgress(context, event, g.teen, "SAVED", event.params.amount, `Saved ${money(event.params.amount)} toward "${g.memo}"`);
 });
 
 on("GoalCompleted", async ({ event, context }) => {
@@ -390,6 +479,7 @@ on("GoalCompleted", async ({ event, context }) => {
     actorFamily: g.familyId,
     amount: event.params.total,
   });
+  await recordProgress(context, event, g.teen, "GOAL_COMPLETED", event.params.total, `Reached the goal "${g.memo}"`);
 });
 
 on("LevelUp", async ({ event, context }) => {
@@ -517,4 +607,189 @@ on("RequestCreated", async ({ event, context }) => {
 on("RequestPaid", async ({ event, context }) => {
   const r = await context.Request.get(String(event.params.requestId));
   if (r) context.Request.set({ ...r, status: "PAID" });
+});
+
+// ───────────── missions ─────────────
+
+on("MissionCreated", async ({ event, context }) => {
+  const teen = await person(context, event.params.teen);
+  const parent = await person(context, event.params.parent);
+  context.Mission.set({
+    id: String(event.params.missionId),
+    familyId: teen.familyId,
+    parent: lc(event.params.parent),
+    parentFamId: parent.user?.famId ?? "",
+    teen: lc(event.params.teen),
+    teenFamId: teen.user?.famId ?? "",
+    reward: event.params.reward,
+    deadline: Number(event.params.deadline),
+    goalId: String(event.params.goalId),
+    status: "ACTIVE",
+    title: event.params.title,
+    description: event.params.description,
+    feedback: "",
+    createdAt: ts(event),
+    submittedAt: 0,
+    resolvedAt: 0,
+    savedToGoal: false,
+    txHash: tx(event),
+    lastTxHash: tx(event),
+  });
+  timeline(context, event, {
+    kind: "mission_created",
+    text: `${parent.name} set a mission for ${teen.name}: "${event.params.title}" for ${money(event.params.reward)}, reserved up front`,
+    actor: event.params.parent,
+    actorFamily: teen.familyId,
+    counterparty: event.params.teen,
+    counterpartyFamily: teen.familyId,
+    amount: event.params.reward,
+  });
+});
+
+/** Move a mission to a new status only along a legal edge; a replayed or out-of-order event is ignored. */
+async function transition(context: Ctx, id: bigint, from: string[], patch: (m: any) => any) {
+  const m = await context.Mission.get(String(id));
+  if (!m || !from.includes(m.status)) return null;
+  const next = patch(m);
+  context.Mission.set(next);
+  return next;
+}
+
+on("MissionSubmitted", async ({ event, context }) => {
+  const m = await transition(context, event.params.missionId, ["ACTIVE", "REJECTED"], (m) => ({
+    ...m, status: "SUBMITTED", submittedAt: ts(event), lastTxHash: tx(event),
+  }));
+  if (!m) return;
+  timeline(context, event, {
+    kind: "mission_submitted",
+    text: `${cap(m.teenFamId)} says "${m.title}" is done and is waiting for ${cap(m.parentFamId)} to review it`,
+    actor: m.teen,
+    actorFamily: m.familyId,
+    counterparty: m.parent,
+    counterpartyFamily: m.familyId,
+    amount: m.reward,
+  });
+});
+
+on("MissionRejected", async ({ event, context }) => {
+  const m = await transition(context, event.params.missionId, ["SUBMITTED"], (m) => ({
+    ...m, status: "REJECTED", feedback: event.params.feedback, lastTxHash: tx(event),
+  }));
+  if (!m) return;
+  timeline(context, event, {
+    kind: "mission_rejected",
+    text: `${cap(m.parentFamId)} sent "${m.title}" back${event.params.feedback ? `: "${event.params.feedback}"` : ""}. The ${money(m.reward)} stays reserved and ${cap(m.teenFamId)} can try again before the deadline`,
+    actor: m.parent,
+    actorFamily: m.familyId,
+    counterparty: m.teen,
+    counterpartyFamily: m.familyId,
+    amount: m.reward,
+  });
+});
+
+on("MissionApproved", async ({ event, context }) => {
+  const m = await transition(context, event.params.missionId, ["SUBMITTED"], (m) => ({
+    ...m, status: "APPROVED", resolvedAt: ts(event), savedToGoal: event.params.savedToGoal, lastTxHash: tx(event),
+  }));
+  if (!m) return;
+  timeline(context, event, {
+    kind: "mission_approved",
+    text: `${cap(m.parentFamId)} approved "${m.title}". ${cap(m.teenFamId)} earned ${money(event.params.reward)}${event.params.savedToGoal ? " and it went straight into their savings goal" : ""}`,
+    actor: m.parent,
+    actorFamily: m.familyId,
+    counterparty: m.teen,
+    counterpartyFamily: m.familyId,
+    amount: event.params.reward,
+  });
+  await recordProgress(context, event, m.teen, "MISSION_APPROVED", event.params.reward, `Completed the mission "${m.title}"`);
+});
+
+for (const [name, status, verb] of [
+  ["MissionCancelled", "CANCELLED", "cancelled"],
+  ["MissionExpired", "EXPIRED", "ran out of time"],
+] as const) {
+  on(name, async ({ event, context }) => {
+    const m = await transition(context, event.params.missionId, ["ACTIVE", "REJECTED"], (m) => ({
+      ...m, status, resolvedAt: ts(event), lastTxHash: tx(event),
+    }));
+    if (!m) return;
+    timeline(context, event, {
+      kind: "mission_" + status.toLowerCase(),
+      text: `The mission "${m.title}" ${verb}. The reserved ${money(event.params.refunded)} went back to ${cap(m.parentFamId)}`,
+      actor: m.parent,
+      actorFamily: m.familyId,
+      counterparty: m.teen,
+      counterpartyFamily: m.familyId,
+      amount: event.params.refunded,
+    });
+  });
+}
+
+// ───────────── FutureFund ─────────────
+function fundEntry(
+  context: Ctx,
+  e: { transaction: { hash: string }; logIndex: number; block: { timestamp: number; number: number } },
+  f: { id: string; teen: string; familyId: number },
+  kind: string,
+  amount: bigint,
+  text: string,
+) {
+  context.FundEntry.set({
+    id: eid(e), fundId: f.id, teen: f.teen, familyId: f.familyId, kind, amount, text, ts: ts(e), blockNumber: blockNo(e), txHash: tx(e),
+  });
+}
+
+on("FundCreated", async ({ event, context }) => {
+  const teen = await person(context, event.params.teen);
+  const parent = await person(context, event.params.parent);
+  const f = {
+    id: String(event.params.fundId),
+    familyId: teen.familyId,
+    parent: lc(event.params.parent),
+    teen: lc(event.params.teen),
+    teenFamId: teen.user?.famId ?? "",
+    name: event.params.name,
+    purpose: event.params.purpose,
+    target: event.params.target,
+    funded: 0n,
+    horizon: Number(event.params.horizon),
+    status: "OPEN",
+    createdAt: ts(event),
+    releasedAt: 0,
+  };
+  context.FutureFund.set(f);
+  const text = `${parent.name} opened the FutureFund "${event.params.name}" for ${teen.name}, aiming for ${money(event.params.target)}. Money in it is held in Fam-Fi and is not invested`;
+  fundEntry(context, event, f, "CREATED", event.params.target, text);
+  timeline(context, event, {
+    kind: "fund_created", text, actor: event.params.parent, actorFamily: teen.familyId,
+    counterparty: event.params.teen, counterpartyFamily: teen.familyId, amount: event.params.target,
+  });
+});
+
+on("FundContributed", async ({ event, context }) => {
+  const f = await context.FutureFund.get(String(event.params.fundId));
+  if (!f || f.status !== "OPEN") return;
+  // `funded` comes straight from the contract's running total, so replaying the event cannot double count.
+  context.FutureFund.set({ ...f, funded: event.params.funded });
+  const parent = await person(context, event.params.parent);
+  const text = `${parent.name} added ${money(event.params.amount)} to ${cap(f.teenFamId)}'s FutureFund "${f.name}". The contribution is confirmed; it is held in Fam-Fi and has not been invested`;
+  fundEntry(context, event, f, "CONTRIBUTED", event.params.amount, text);
+  timeline(context, event, {
+    kind: "fund_contributed", text, actor: event.params.parent, actorFamily: f.familyId,
+    counterparty: f.teen, counterpartyFamily: f.familyId, amount: event.params.amount,
+  });
+});
+
+on("FundReleased", async ({ event, context }) => {
+  const f = await context.FutureFund.get(String(event.params.fundId));
+  if (!f || f.status !== "OPEN") return;
+  context.FutureFund.set({ ...f, status: "RELEASED", releasedAt: ts(event) });
+  const text = event.params.byTeen
+    ? `${cap(f.teenFamId)} claimed ${money(event.params.amount)} from the FutureFund "${f.name}" after its target date`
+    : `${cap(f.teenFamId)}'s parent released ${money(event.params.amount)} from the FutureFund "${f.name}" early`;
+  fundEntry(context, event, f, "RELEASED", event.params.amount, text);
+  timeline(context, event, {
+    kind: "fund_released", text, actor: event.params.byTeen ? f.teen : f.parent, actorFamily: f.familyId,
+    counterparty: event.params.byTeen ? f.parent : f.teen, counterpartyFamily: f.familyId, amount: event.params.amount,
+  });
 });
