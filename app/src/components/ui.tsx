@@ -16,7 +16,7 @@ type Toast = { id: number; kind: "ok" | "err"; text: string };
 const ToastCtx = createContext<{ ok: (t: string) => void; err: (t: string) => void }>({ ok() {}, err() {} });
 export const useToast = () => useContext(ToastCtx);
 export function ActionError({ error }: { error?: string | null }) {
-  return error ? <p className="mt-3 text-sm text-bad" role="alert">{error}</p> : null;
+  return error ? <p className="mt-3 min-w-0 break-words text-sm text-bad" role="alert">{error}</p> : null;
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -35,7 +35,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             role={t.kind === "err" ? "alert" : "status"}
-            className={`pop pointer-events-auto max-w-md rounded-2xl px-4 py-3 text-sm font-semibold shadow-glow ${
+            className={`pop pointer-events-auto min-w-0 max-w-md break-words rounded-2xl px-4 py-3 text-sm font-semibold shadow-glow ${
               t.kind === "ok" ? "bg-brand text-onbrand" : "bg-bad text-onbad"
             }`}
           >
