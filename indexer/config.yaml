@@ -37,7 +37,7 @@ contracts:
       - event: RequestPaid
 chains:
   - id: 10143 # Monad testnet
-    start_block: 0 # set to the deploy block from deployments/monad-testnet.json after deploying
+    start_block: 69632047 # set to the deploy block from deployments/monad-testnet.json after deploying
     contracts:
       - name: FamFi
         address: "${ENVIO_FAMFI_ADDRESS:-0x0000000000000000000000000000000000000001}"
