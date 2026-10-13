@@ -12,10 +12,12 @@
     "dev:local": "tsx dev-server.ts"
   },
   "dependencies": {
-    "envio": "^3.14.0"
+    "envio": "3.14.1"
   },
   "overrides": {
-    "envio": { "express": "^4.22.3" },
+    "envio": {
+      "express": "^4.22.3"
+    },
     "ws": "^8.22.0"
   },
   "devDependencies": {

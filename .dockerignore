@@ -1,0 +1,9 @@
+**
+!relayer
+!relayer/package.json
+!relayer/package-lock.json
+!relayer/tsconfig.json
+!relayer/src
+!relayer/src/**
+!abi
+!abi/**

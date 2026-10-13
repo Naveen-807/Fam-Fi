@@ -6,7 +6,7 @@ field_selection:
     - hash
 contracts:
   - name: FamFi
-    abi_file_path: ../abi/FamFi.json
+    abi_file_path: abi/FamFi.json
     handler: src/EventHandlers.ts
     events:
       - event: FamIdRegistered
