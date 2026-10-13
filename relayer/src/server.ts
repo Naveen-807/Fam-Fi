@@ -21,6 +21,8 @@ const cfg: RelayerConfig = {
   maxGas: BigInt(process.env.MAX_GAS || "1000000"),
   ratePerMinute: Number(process.env.RATE_PER_MINUTE || "30"),
   envioUrl: process.env.ENVIO_URL || "",
+  rosterStatePath: process.env.ROSTER_STATE_PATH || undefined,
+  contractVersion: process.env.CONTRACT_VERSION === "v2" ? "v2" : "v1",
   faucetStatePath: process.env.FAUCET_STATE_PATH === "none" ? null : process.env.FAUCET_STATE_PATH || ".faucet-state.json",
 };
 
@@ -28,6 +30,12 @@ const { app, ensureTreasuryAllowance } = createApp(cfg);
 const port = Number(process.env.PORT || 8787);
 app.listen(port, async () => {
   console.log(`FamFi relayer listening on :${port}`);
+  // Starting the server must not implicitly grant persistent token spending access.
+  // Deployment/setup may explicitly opt in; normal starts only use existing allowance.
+  if (process.env.PREPARE_TREASURY_ALLOWANCE !== "true") {
+    console.log("Automatic treasury approval disabled; using the existing token allowance.");
+    return;
+  }
   try {
     await ensureTreasuryAllowance();
     console.log("treasury allowance ok");

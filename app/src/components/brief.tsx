@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Button, Card, Empty, FreshNote, Pill } from "@/components/ui";
+import { Button, Card, Empty, Pill } from "@/components/ui";
 import { explorerTx } from "@/lib/relay";
 import { big, cap, dateText, fmt } from "@/lib/format";
 import type { Bundle, WeekRow } from "@/lib/private";
@@ -40,7 +40,7 @@ export function WeeklyBrief({ bundle, fetchedAt, error }: { bundle: Bundle | nul
     requests: bundle?.data.requests ?? [],
     holds: (bundle?.data.holds ?? []).filter((h) => h.status === "OPEN"),
   };
-  const lastBlock = Math.max(0, ...(bundle?.data.progress ?? []).map((p) => p.lastEventBlock));
+  const incomplete = !!error || !!bundle?.indexerError || bundle?.freshness?.lagBlocks == null || bundle.freshness.lagBlocks > 10;
 
   return (
     <Card
@@ -52,7 +52,7 @@ export function WeeklyBrief({ bundle, fetchedAt, error }: { bundle: Bundle | nul
         </div>
       }
     >
-      {!bundle ? <Empty>Loading…</Empty> : (
+      {!bundle ? <Empty>Loading…</Empty> : incomplete ? <Empty>Weekly totals are unavailable while confirmed history catches up.</Empty> : (
         <>
           <p className="text-sm font-semibold">
             {dateText(start)} to {dateText(end - 1)} {back === 0 && <Pill tone="mint">this week</Pill>}
@@ -63,6 +63,7 @@ export function WeeklyBrief({ bundle, fetchedAt, error }: { bundle: Bundle | nul
             <Tile label="Missions completed" value={String(isum(rows, (r) => r.missionsCompleted))} />
             <Tile label="Mission rewards paid" value={`$${fmt(sum(rows, (r) => big(r.missionRewards)))}`} />
             <Tile label="Saved toward goals" value={`$${fmt(sum(rows, (r) => big(r.savedTotal)))}`} />
+            <Tile label="Family matching released" value={`$${fmt(sum(rows, (r) => big(r.matchedTotal)))}`} sub="Contributions, not investment returns" />
             <Tile label="Goals reached" value={String(isum(rows, (r) => r.goalsCompleted))} />
             <Tile label="Payments completed" value={String(isum(rows, (r) => r.paymentsCompleted))} />
             <Tile label="Allowance funded" value={`$${fmt(sum(rows, (r) => big(r.allowanceFunded)))}`} />
@@ -98,7 +99,8 @@ export function WeeklyBrief({ bundle, fetchedAt, error }: { bundle: Bundle | nul
             </ul>
           )}
 
-          <h3 className="mb-2 mt-5 text-sm font-bold">Where these numbers come from</h3>
+          <details className="mt-5"><summary className="cursor-pointer text-sm font-bold">Details and transaction proof</summary>
+          <h3 className="mb-2 mt-3 text-sm font-bold">Where these numbers come from</h3>
           {sources.length === 0 ? <p className="text-sm text-muted">No counted events this week.</p> : (
             <ul className="space-y-1.5 text-sm">
               {sources.slice(0, 15).map((h) => {
@@ -112,8 +114,8 @@ export function WeeklyBrief({ bundle, fetchedAt, error }: { bundle: Bundle | nul
               })}
             </ul>
           )}
-          <div className="mt-4"><FreshNote fetchedAt={fetchedAt} error={error} blockNumber={lastBlock || undefined} /></div>
           <p className="mt-1 text-xs text-dim">Totals are confirmed on-chain events only. There are no estimates or forecasts.</p>
+          </details>
         </>
       )}
     </Card>

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Button, Card, Field, Input, Proof, useToast } from "./ui";
+import { ActionError, Button, Card, Field, Input, Proof, useToast } from "./ui";
 import { famIdBytes, famIdTaken, ROLE } from "@/lib/chain";
 import { useWallet } from "@/lib/wallet";
 import { relay, TxResult } from "@/lib/relay";
@@ -9,26 +9,34 @@ import { FAMID_RE } from "@/lib/format";
 
 /** Check a Fam-ID as the person types: format first, then whether it is free on-chain. */
 export function useFamIdCheck(value: string) {
-  const [state, setState] = useState<"empty" | "bad" | "checking" | "free" | "taken">("empty");
+  type Status = "empty" | "bad" | "checking" | "free" | "taken" | "unavailable";
+  const [result, setResult] = useState<{ value: string; state: Status }>({ value: "", state: "empty" });
   useEffect(() => {
+    const setState = (state: Status) => setResult({ value, state });
     if (!value) return setState("empty");
     if (!FAMID_RE.test(value)) return setState("bad");
     setState("checking");
     let alive = true;
-    const t = setTimeout(async () => {
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const check = async () => {
       try {
         const taken = await famIdTaken(value);
         if (alive) setState(taken ? "taken" : "free");
       } catch {
-        if (alive) setState("free"); // the contract re-checks anyway
+        if (alive) {
+          setState("unavailable");
+          retry = setTimeout(check, 3000);
+        }
       }
-    }, 250);
+    };
+    const t = setTimeout(check, 250);
     return () => {
       alive = false;
       clearTimeout(t);
+      if (retry) clearTimeout(retry);
     };
   }, [value]);
-  return state;
+  return result.value === value ? result.state : !value ? "empty" : !FAMID_RE.test(value) ? "bad" : "checking";
 }
 
 const HINT = {
@@ -37,6 +45,7 @@ const HINT = {
   checking: "Checking…",
   free: "Available ✓",
   taken: "Already taken",
+  unavailable: "Couldn't check availability. Retrying…",
 } as const;
 
 /** Pick a Fam-ID and create the account. `kind` decides the role and what happens after. */
@@ -47,7 +56,7 @@ export function Onboard({
   onDone?: () => void;
 }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const toast = useToast();
   const [name, setName] = useState("");
   const [tx, setTx] = useState<TxResult | null>(null);
@@ -81,7 +90,7 @@ export function Onboard({
   }
 
   return (
-    <Card className="mx-auto mt-6 max-w-md">
+    <Card className="mx-auto mt-6 max-w-md"><ActionError error={actionError}/>
       <h1 className="text-2xl font-bold">{copy.title}</h1>
       <p className="mt-1 text-sm text-slate-600">{copy.blurb}</p>
       <div className="mt-5 space-y-4">

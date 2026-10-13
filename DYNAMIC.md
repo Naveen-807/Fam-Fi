@@ -13,12 +13,16 @@ There are no other login paths. Without `NEXT_PUBLIC_DYNAMIC_ENV_ID` the app ref
 | Next visit is Face ID / fingerprint | passkeys: `useRegisterPasskey`, `useSignInWithPasskey` | `registerPasskey / signInWithPasskey`, `PasskeyPrompt` in `ui.tsx` |
 | Put the wallet on Monad testnet | custom network injected via the `networksData` transformer, then `switchActiveNetwork` | `OUR_NETWORK`, `ensureOurNetwork` |
 | Every action is a signed request | `createWalletClientForWalletAccount(...).signTypedData` (EIP-712) | `signer.signTypedData` |
+| Fund a parent or relative balance from their own embedded wallet | viem wallet client's `sendTransaction`: exact USDC approval followed by `depositFor` | `wallet-funding.ts`, `WalletFunding` |
+| Prove access to family summaries once per short session | Dynamic wallet signs a deployment-bound `ReadAuth`; concurrent screens share the grant | `read-session.ts`, `private.ts` |
 
 ## Why it matters to the product
 
-Fam-Fi's users are teens, parents, and relatives who have never held a wallet. Email + passkey means nobody sees a seed phrase or needs gas. The signed EIP-712 request goes to our relayer, which pays gas, so the flow is: email code -> wallet -> tap -> done.
+Fam-Fi's users are teens, parents, and relatives who may never have held a wallet. Email onboarding hides wallet setup. Normal family actions use a signed EIP-712 request and Fam-Fi's relayer pays gas. Passkeys are optional and require the environment setting to be enabled.
 
-Fam-Fi also asks Dynamic to sign one more typed message, `ReadAuth` (domain `FamFiRead`), to prove who is asking for private family summaries. It is a read-only sign-in with a 30-minute expiry, not a transaction.
+Add family funds is a guided wallet flow (Get test funds remains separate): parents and relatives can receive Monad testnet USDC at their own embedded-wallet address, then authorize and deposit it into their own Fam-Fi balance. This path requires test MON for fees. It does not use the treasury faucet and is not gas-sponsored. Approval alone never appears as a completed deposit; existing sufficient allowance skips approval, failed approvals stop the flow, and unknown submitted transactions persist across reloads and require checking before retrying. Recovery validates the transaction sender, target, calldata and amount. After deposit confirmation, the parent chooses a separately authorized allocation.
+
+Fam-Fi also asks Dynamic to sign `ReadAuth` (domain `FamFiRead`, chain ID and FamFi verifying contract), to prove who is asking for family summaries. It expires after 30 minutes and cannot authorize money movement. Grants stay in memory, are cleared on account changes/logout, and late signatures cannot resurrect an old session. Cancelled authorization pauses automatic prompts until the person explicitly retries. The server obtains the role and family from the contract, never the browser. Blockchain events remain public; this gateway is application access control, not blockchain confidentiality.
 
 ## Setup (sandbox environment)
 
@@ -30,4 +34,13 @@ Fam-Fi also asks Dynamic to sign one more typed message, `ReadAuth` (domain `Fam
 ## Status, honestly
 
 * The form, validation and failure messages are browser-tested without an account: `e2e/dynamic-ui.mjs`.
-* **A full real login (email code -> wallet -> signed transaction on Monad testnet) has not been run yet**, because it needs a real Environment ID and a mailbox. Update this section with the transaction hash and date once it has.
+* **A full real login (email code -> wallet -> signed transaction on Monad testnet) has not been run yet**, the Environment ID is now configured, but mailbox and real-session signing verification still require participation. Update this section with the transaction hash and date once it has.
+* Wallet funding and read-session behavior have automated tests. These do not establish Dynamic-service compatibility: complete a real sandbox login, deposit, returning login and money action before claiming a live integration.
+
+## Two-minute sponsor demo
+
+1. Parent signs in through Dynamic and receives an embedded wallet. Show returning access preserving the address.
+2. Open wallet funding, show the network/address and move test USDC into Fam-Fi; record approval and deposit proof separately.
+3. Parent funds a mission linked to a goal; relative signs a matching commitment from their own account.
+4. Parent approves the teen's submitted mission. Show the saving/matching receipt with transaction proof.
+5. Explain the short read-only wallet grant and contract-enforced family roles. Attribute gas sponsorship to Fam-Fi, not Dynamic.

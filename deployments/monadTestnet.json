@@ -2,9 +2,25 @@
   "network": "monadTestnet",
   "chainId": 10143,
   "usdc": "0x534b2f3A21130d7a60830c2Df862319e593943A3",
-  "forwarder": "0x3B9AcFc9Fa78a4ed252D8f3E7798c4c5349F0e9a",
-  "famFi": "0x258E99513dDb822a6CA9b55F06B9be664C781533",
-  "deployBlock": 69632047,
+  "forwarder": "0xbA73C0EA819e6aB3C65Dc5b867205Bf873dBcF5b",
+  "famFi": "0x9B4753f628b1D4445C9C29EC8608E3ec78D2FbE9",
+  "deployBlock": 70640050,
+  "transactions": {
+    "famFi": "0x18c68b82f17c2faaab03bf096fd2fde4fa6c2c97831ab39448df24c5dbe681c4",
+    "forwarder": "0xd281e4893ec074411606e3b359eeb479e45b3b98ce16678bbd1a4ec46854b878"
+  },
+  "runtimeCodeHashes": {
+    "famFi": "0x96fbb673387f9584ed1a8ce3265905ac0f864190f56a7503d94366431a1d760f",
+    "forwarder": "0x9d6e6f079c31de14994ecefe0b2f4c46394cf0bc60222e4fd58b8c65348e3cf3"
+  },
   "deployer": "0x142ab63003539323c88159Eb7Dc6cC9E6F8d1951",
-  "deployedAt": "2026-10-09T20:15:47.600Z"
+  "deployedAt": "2026-10-13T08:55:59.337Z",
+  "verification": {
+    "bytecodeVerified": true,
+    "sourceHashes": {
+      "FamFi": "0xbdacc62a98525cd0af235d1afee24ecc83523789cfcdc6cd9b6528b952c24780",
+      "FamFiForwarder": "0xe66a06a42fd3144eba31e51406e75711d612b0474e3709a704a13d69f03731f6"
+    },
+    "checkedAt": "2026-10-13T08:57:00.981Z"
+  }
 }

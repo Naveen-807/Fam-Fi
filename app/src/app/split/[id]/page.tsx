@@ -1,7 +1,7 @@
 "use client";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, Empty, Money, Pill, Progress, Proof, Shell, SignIn } from "@/components/ui";
+import { ActionError, Button, Card, Empty, Money, Pill, Progress, Proof, Shell, SignIn } from "@/components/ui";
 import { Onboard } from "@/components/onboard";
 import { ROLE, readBalance } from "@/lib/chain";
 import { faucet, relay, TxResult } from "@/lib/relay";
@@ -13,7 +13,7 @@ import { big, cap, fmt } from "@/lib/format";
 export default function SplitPage() {
   const { id } = useParams<{ id: string }>();
   const { signer } = useWallet();
-  const { acct, loaded, refresh } = useMe();
+  const { acct, loaded, error: accountError, refresh } = useMe();
   const split = useGql<{ Split: any[] }>(Q.split, { id }, `sp${id}`, 1000);
   const shares = useGql<{ SplitShare: any[] }>(Q.splitShares, { id }, `ss${id}`, 1000);
   const s = split.data?.Split?.[0];
@@ -23,7 +23,7 @@ export default function SplitPage() {
     <Shell famId={acct?.famId}>
       <div className="mx-auto max-w-md space-y-5">
         {!split.data ? (
-          <Empty>Loading…</Empty>
+          <Empty>{split.error ? "This split summary is temporarily unavailable. Please try again shortly." : "Loading…"}</Empty>
         ) : !s ? (
           <Card className="text-center"><h1 className="text-xl font-bold">We can&apos;t find that split</h1><p className="mt-2 text-sm text-muted">The link may be old or mistyped.</p></Card>
         ) : (
@@ -47,7 +47,7 @@ export default function SplitPage() {
               <SignIn title="Pay your share" blurb="Sign in with your email to pay. It takes a minute." />
             ) : !loaded ? (
               <Empty>Loading…</Empty>
-            ) : !acct || acct.role === ROLE.NONE ? (
+            ) : accountError ? (<Card><p role="alert">{accountError}</p><Button onClick={()=>void refresh()}>Retry account</Button></Card>) : !acct || acct.role === ROLE.NONE ? (
               <Onboard kind="friend" onDone={refresh} />
             ) : (
               <Pay split={s} me={acct.famId} already={paidBy.includes(acct.famId)} />
@@ -61,7 +61,7 @@ export default function SplitPage() {
 
 function Pay({ split, me, already }: { split: any; me: string; already: boolean }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const [balance, setBalance] = useState<bigint | null>(null);
   const [tx, setTx] = useState<TxResult | null>(null);
   const share = big(split.perShare);
@@ -89,7 +89,7 @@ function Pay({ split, me, already }: { split: any; me: string; already: boolean 
 
   const short = balance !== null && balance < share;
   return (
-    <Card title="Your share">
+    <Card title="Your share"><ActionError error={actionError}/>
       <div className="flex items-center justify-between text-sm">
         <span className="text-dim">Your balance (@{me})</span>
         <Money value={balance ?? 0n} size="sm" />

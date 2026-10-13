@@ -2,6 +2,7 @@ import { createTestIndexer } from "envio";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { recordAchievement } from "../src/EventHandlers";
 
 const CONFIG_START = Number(/start_block:\s*(\d+)/.exec(readFileSync(new URL("../config.yaml", import.meta.url), "utf8"))?.[1] ?? 0);
 const START = Math.max(100, CONFIG_START);
@@ -14,6 +15,17 @@ const IST = 19800n;
 // Sunday 2027-01-03 20:00 UTC is Monday 01:30 in IST, so it already belongs to the NEXT local week.
 const SUN_EVENING_UTC = 1799006400;
 const WED_UTC = 1799236800;
+
+test("first achievement keeps canonical earliest evidence under reordered and duplicate delivery",async()=>{
+  const rows=new Map<string,any>();
+  const context={Achievement:{get:async(id:string)=>rows.get(id),set:(row:any)=>rows.set(row.id,row)}};
+  const event=(block:number,logIndex:number)=>({transaction:{hash:"0x"+String(block).padStart(64,"0")},block:{number:block,timestamp:1000+block},logIndex});
+  await recordAchievement(context,event(30,2),TEEN,1,"SAVED","later");
+  await recordAchievement(context,event(20,5),TEEN,1,"SAVED","earlier");
+  await recordAchievement(context,event(20,1),TEEN,1,"SAVED","first-log");
+  await recordAchievement(context,event(30,2),TEEN,1,"SAVED","duplicate");
+  const row=rows.get(`${TEEN}-SAVED`);assert.equal(row.sourceEvent,"first-log");assert.equal(row.familyId,1);assert.equal(rows.size,1);
+});
 
 /** A tiny builder: each call is one event in its own transaction, in order. */
 function story(baseTs: number) {
@@ -72,6 +84,11 @@ test("mission lifecycle: reject keeps it open, approval counts once, other endin
   assert.equal(m1.familyId, 1);
   assert.equal(m1.reward, U(10));
   assert.ok(m1.resolvedAt > 0 && m1.submittedAt > 0);
+  const first = await indexer.Achievement.get(`${TEEN}-MISSION_APPROVED`);
+  const source = s.events.find(e=>e.event==="MissionApproved");
+  assert.equal(first.txHash,source.transaction.hash);
+  assert.equal(first.blockNumber,source.block.number);
+  assert.equal(first.familyId,1);
   assert.equal((await indexer.Mission.get("2")).status, "EXPIRED");
   assert.equal((await indexer.Mission.get("3")).status, "CANCELLED");
 
@@ -163,4 +180,75 @@ test("FutureFund keeps an honest, source-linked story and never claims an invest
   assert.ok(entries.every((e: any) => /^0x[0-9a-f]{64}$/.test(e.txHash)));
   assert.ok(entries[1].text.includes("confirmed") && entries[1].text.includes("not been invested"));
   assert.ok(entries.every((e: any) => !/yield|APY|profit|return of|invested at/i.test(e.text)));
+});
+
+test("a mission saving receipt connects capped matching from multiple relatives and survives repeated logs", async () => {
+  const indexer: any = createTestIndexer();
+  const s = story(WED_UTC);
+  setup(s);
+  const AUNT = "0x00000000000000000000000000000000000000c3";
+  const GRANDPA = "0x00000000000000000000000000000000000000d4";
+  s.ev("FamIdRegistered", { user: AUNT, famId: id32("aunt"), role: 3n });
+  s.ev("FamIdRegistered", { user: GRANDPA, famId: id32("grandpa"), role: 3n });
+  s.ev("GoalProposed", { goalId: 1n, teen: TEEN, target: U(10), deadline: 1_900_000_000n, memo: "Bike" });
+  s.ev("GoalApproved", { goalId: 1n, sponsorOpen: true });
+  s.ev("GiftLocked", { giftId: 1n, goalId: 1n, sponsor: AUNT, amount: U(8), ratio: U(1), deadline: 1_900_000_000n });
+  s.ev("GiftLocked", { giftId: 2n, goalId: 1n, sponsor: GRANDPA, amount: U(8), ratio: U(2), deadline: 1_900_000_000n });
+  s.ev("MissionCreated", { ...created(1n, 4), goalId: 1n });
+  s.ev("MissionSubmitted", { missionId: 1n, teen: TEEN });
+  // Actual approveMission order: matches -> saving -> completion -> mission approval.
+  const batch = [
+    s.ev("GiftReleased", { giftId: 1n, goalId: 1n, amount: U(4) }),
+    s.ev("GiftReleased", { giftId: 2n, goalId: 1n, amount: U(2) }), // capped by remaining goal room
+    s.ev("GoalSaved", { goalId: 1n, teen: TEEN, amount: U(4), saved: U(4), matched: U(6) }),
+    s.ev("GoalCompleted", { goalId: 1n, total: U(10) }),
+    s.ev("MissionApproved", { missionId: 1n, teen: TEEN, reward: U(4), savedToGoal: true }),
+  ];
+  batch.forEach((e, i) => { e.transaction = batch[0].transaction; e.block = batch[0].block; e.logIndex = i; });
+  for (const original of batch) s.events.push({ ...original, block: { ...original.block, number: s.end() }, logIndex: original.logIndex });
+  await indexer.process({ chains: { 10143: { startBlock: START, endBlock: s.end() + 5, simulate: s.events } } });
+
+  const receipt = await indexer.SavingReceipt.get(`${batch[0].transaction.hash}-1`);
+  assert.equal(receipt.source, "MISSION");
+  assert.equal(receipt.missionId, "1");
+  assert.equal(receipt.missionTitle, "Wash the car");
+  assert.equal(receipt.ownAmount, U(4));
+  assert.equal(receipt.matchedAmount, U(6));
+  assert.equal(receipt.totalAfter, U(10));
+  assert.equal((await indexer.SavingReceipt.getAll()).length, 1);
+  assert.equal((await indexer.SavingContribution.getAll()).length, 1);
+  const releases = await indexer.MatchRelease.getAll();
+  assert.equal(releases.length, 2);
+  assert.equal(releases.reduce((total: bigint, r: any) => total + r.amount, 0n), U(6));
+  assert.ok(releases.every((r: any) => r.receiptId === receipt.id && r.familyId === 1));
+  assert.equal((await indexer.Gift.get("1")).escrow, U(4));
+  assert.equal((await indexer.Gift.get("2")).escrow, U(6));
+  const progress = await indexer.TeenProgress.get(TEEN);
+  assert.equal(progress.savedTotal, U(4));
+  assert.equal(progress.matchedTotal, U(6));
+  assert.equal(progress.missionRewards, U(4));
+  assert.equal(progress.goalsCompleted, 1);
+  assert.equal((await indexer.WeeklyStat.getAll())[0].matchedTotal, U(6));
+  const kinds = (await indexer.Achievement.getAll()).map((a:any)=>a.kind).sort();
+  assert.deepEqual(kinds,["GOAL_COMPLETED","MATCHED","MISSION_APPROVED","SAVED"]);
+  assert.equal((await indexer.Achievement.get(`${TEEN}-MATCHED`)).txHash, receipt.txHash);
+});
+
+test("separate saving transactions preserve incremental matching and their own goal snapshots", async () => {
+  const indexer: any = createTestIndexer();
+  const s = story(WED_UTC);
+  setup(s);
+  s.ev("GoalProposed", { goalId: 1n, teen: TEEN, target: U(30), deadline: 1_900_000_000n, memo: "Shoes" });
+  s.ev("GoalApproved", { goalId: 1n, sponsorOpen: true });
+  const first = s.ev("GoalSaved", { goalId: 1n, teen: TEEN, amount: U(5), saved: U(5), matched: U(5) });
+  const second = s.ev("GoalSaved", { goalId: 1n, teen: TEEN, amount: U(3), saved: U(8), matched: U(7) });
+  await indexer.process({ chains: { 10143: { startBlock: START, endBlock: s.end(), simulate: s.events } } });
+  const r1 = await indexer.SavingReceipt.get(`${first.transaction.hash}-1`);
+  const r2 = await indexer.SavingReceipt.get(`${second.transaction.hash}-1`);
+  assert.equal(r1.matchedAmount, U(5));
+  assert.equal(r2.matchedAmount, U(2)); // not the cumulative matched balance of 7
+  assert.equal(r1.totalAfter, U(10));
+  assert.equal(r2.totalAfter, U(15));
+  assert.equal(r1.source, "SAVING");
+  assert.equal(r2.source, "SAVING");
 });

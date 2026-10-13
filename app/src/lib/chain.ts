@@ -56,12 +56,13 @@ export type TeenView = {
 };
 
 export async function readTeen(addr: string): Promise<TeenView> {
+  const blockTag = await provider.getBlockNumber();
   const [balance, accrued, stream, remainingToday, c] = await Promise.all([
-    fam.balance(addr),
-    fam.accrued(addr),
-    fam.streams(addr),
-    fam.remainingToday(addr),
-    fam.getTeenCfg(addr),
+    fam.balance(addr, { blockTag }),
+    fam.accrued(addr, { blockTag }),
+    fam.streams(addr, { blockTag }),
+    fam.remainingToday(addr, { blockTag }),
+    fam.getTeenCfg(addr, { blockTag }),
   ]);
   return {
     balance,

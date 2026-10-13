@@ -6,7 +6,7 @@
 //   options: --rpc <url> --chain-id <n> --usdc <address> --wallets <file> --explorer <tx-url-prefix>
 //   --dry-run  checks everything and prints what a deploy would change, without sending a transaction or writing a file
 import { createRequire } from "node:module";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,7 +54,8 @@ const usdc = new ethers.Contract(USDC, ["function balanceOf(address) view return
 const usdcBal = await usdc.balanceOf(W.treasury.address);
 const dec = Number(await usdc.decimals());
 console.log(`  treasury  ${ethers.formatUnits(usdcBal, dec)} USDC  ${usdcBal > 0n ? "✓" : "✗ empty"}`);
-if (usdcBal === 0n) problems.push(`treasury (${W.treasury.address}) needs test USDC → https://faucet.circle.com (USDC, Monad Testnet)`);
+if (dec !== 6) stop("The configured token must use 6 decimals.");
+if (usdcBal === 0n) console.warn("The treasury has no test USDC. Deployment can proceed, but the faucet stays unavailable until funded.");
 // ── 1b. dry run: say what a real deploy would change, then stop ──
 if (DRY) {
   const prev = path.join(root, "deployments", "monadTestnet.json");
@@ -79,6 +80,15 @@ if (problems.length) stop("Not ready yet. Please fix:\n  • " + problems.join("
 
 // ── 2. deploy (the contract takes the USDC address as a parameter, nothing is mocked) ──
 {
+  const backup = path.join(root, ".local", "deploy-backups", new Date().toISOString().replace(/[:.]/g, "-"));
+  mkdirSync(backup, { recursive: true, mode: 0o700 });
+  for (const file of ["relayer/.env", "relayer/.faucet-state.json", "relayer/.local/confirmed-teens.json", "app/.env.local", "indexer/.env", "indexer/config.yaml", "deployments/monadTestnet.json"]) {
+    if (!existsSync(path.join(root, file))) continue;
+    const dest = path.join(backup, file);
+    mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+    copyFileSync(path.join(root, file), dest); chmodSync(dest, 0o600);
+  }
+  console.log(`\nSaved previous configuration in ${backup}`);
   const prev = path.join(root, "deployments", "monadTestnet.json");
   if (existsSync(prev)) { copyFileSync(prev, path.join(root, "deployments", "monadTestnet.previous.json")); console.log("\nKept the earlier deployment record at deployments/monadTestnet.previous.json"); }
 }
@@ -95,10 +105,14 @@ console.log(`  FamFi      ${dep.famFi}\n  Forwarder  ${dep.forwarder}\n  Deploy 
 // ── 3. write the config for every service ──
 const write = (rel, body) => { writeFileSync(path.join(root, rel), body, { mode: 0o600 }); console.log(`  wrote ${rel}`); };
 console.log("\nWriting config files…");
+mkdirSync(path.join(root, "relayer", ".local"), { recursive: true, mode: 0o700 });
 write("relayer/.env", [
   `RPC_URL=${RPC}`, `RELAYER_KEY=${W.relayer.privateKey}`, `TREASURY_KEY=${W.treasury.privateKey}`,
   `FAMFI_ADDRESS=${dep.famFi}`, `FORWARDER_ADDRESS=${dep.forwarder}`, `USDC_ADDRESS=${USDC}`,
   `ALLOWED_ORIGIN=*`, `ENVIO_URL=http://localhost:8080/v1/graphql`, `FAUCET_AMOUNT=5`, `FAUCET_COOLDOWN_HOURS=24`, `PORT=8787`, "",
+  `PREPARE_TREASURY_ALLOWANCE=false`, "",
+  `FAUCET_STATE_PATH=.local/faucet-state-${dep.famFi.toLowerCase()}.json`,
+  `ROSTER_STATE_PATH=.local/confirmed-teens-${dep.famFi.toLowerCase()}.json`, "",
 ].join("\n"));
 write("app/.env.local", [
   `NEXT_PUBLIC_RPC_URL=${RPC}`, `NEXT_PUBLIC_CHAIN_ID=${CHAIN_ID}`, `NEXT_PUBLIC_FAMFI=${dep.famFi}`,

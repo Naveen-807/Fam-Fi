@@ -17,14 +17,17 @@ if (!FAMFI) throw new Error("FAMFI_ADDRESS is required");
 const PORT = Number(process.env.PORT || 8080);
 let nextBlock = Number(process.env.START_BLOCK || 0);
 const LOG_RANGE = Number(process.env.LOG_RANGE || 90); // public Monad RPCs allow ~100 blocks per eth_getLogs
+const RANGES_PER_SYNC = Math.max(1, Math.min(50, Number(process.env.RANGES_PER_SYNC || 50)));
 const POLL_MS = Number(process.env.POLL_MS || 1500);
 let lastSync = 0;
+let chainHead: number | null = null;
+let syncError: string | null = null;
 
 const abi = JSON.parse(readFileSync(new URL("../abi/FamFi.json", import.meta.url), "utf8"));
 const iface = new ethers.Interface(abi);
 const provider = new ethers.JsonRpcProvider(RPC, undefined, { staticNetwork: true });
 const indexer: any = createTestIndexer();
-const ENTITIES = ["User", "Family", "Stream", "Payment", "Pending", "Goal", "Gift", "Split", "SplitShare", "Request", "TimelineEntry", "Mission", "ProgressEvent", "TeenProgress", "WeeklyStat", "FutureFund", "FundEntry"];
+const ENTITIES = ["User", "Family", "Stream", "Payment", "Pending", "Goal", "Gift", "Split", "SplitShare", "Request", "TimelineEntry", "Mission", "ProgressEvent", "TeenProgress", "Achievement", "WeeklyStat", "FutureFund", "FundEntry", "SavingReceipt", "SavingContribution", "MatchRelease"];
 
 const blockTs = new Map<number, number>();
 async function tsOf(n: number) {
@@ -44,12 +47,20 @@ async function sync() {
   busy = true;
   try {
     const head = await provider.getBlockNumber();
+    chainHead = head;
     if (head < nextBlock) return;
+    const endBlock = Math.min(head, nextBlock + LOG_RANGE * RANGES_PER_SYNC - 1);
     const simulate: any[] = [];
-    for (let from = nextBlock; from <= head; from += LOG_RANGE) {
-      const to = Math.min(head, from + LOG_RANGE - 1);
-      const logs = await provider.getLogs({ address: FAMFI, fromBlock: from, toBlock: to });
-      for (const log of logs) {
+    const ranges = Array.from({ length: Math.ceil((endBlock - nextBlock + 1) / LOG_RANGE) }, (_, i) => nextBlock + i * LOG_RANGE);
+    const logs: ethers.Log[] = [];
+    // Fetch a few independent ranges together, then replay in canonical order.
+    // If any request fails, the cursor stays put; no history is skipped.
+    for (let i = 0; i < ranges.length; i += 5) {
+      const batch = await Promise.all(ranges.slice(i, i + 5).map((from) => provider.getLogs({ address: FAMFI, fromBlock: from, toBlock: Math.min(endBlock, from + LOG_RANGE - 1) })));
+      logs.push(...batch.flat());
+    }
+    logs.sort((a, b) => a.blockNumber - b.blockNumber || a.index - b.index);
+    for (const log of logs) {
         const parsed = iface.parseLog(log);
         if (!parsed) continue;
         const params: Record<string, any> = {};
@@ -62,15 +73,16 @@ async function sync() {
           block: { number: log.blockNumber, timestamp: await tsOf(log.blockNumber), hash: log.blockHash },
           transaction: { hash: log.transactionHash },
         });
-      }
     }
     if (simulate.length) {
-      await indexer.process({ chains: { 10143: { startBlock: nextBlock, endBlock: head, simulate } } });
-      console.log(`indexed ${simulate.length} events up to block ${head}`);
+      await indexer.process({ chains: { 10143: { startBlock: nextBlock, endBlock, simulate } } });
+      console.log(`indexed ${simulate.length} events up to block ${endBlock}`);
     }
-    nextBlock = head + 1;
+    nextBlock = endBlock + 1;
     lastSync = Date.now();
+    syncError = null;
   } catch (e: any) {
+    syncError = "Event sync could not reach the network";
     console.error("sync error:", e?.message || e);
   } finally {
     busy = false;
@@ -162,15 +174,22 @@ const server = http.createServer(async (req, res) => {
   res.setHeader("access-control-allow-origin", "*");
   res.setHeader("access-control-allow-headers", "content-type");
   if (req.method === "OPTIONS") return res.writeHead(204).end();
-  if (req.url === "/healthz") return res.writeHead(200).end(JSON.stringify({ ok: true, nextBlock }));
+  if (req.url === "/healthz") return res.writeHead(200).end(JSON.stringify({
+    ok: true, nextBlock, indexedBlock: lastSync ? nextBlock - 1 : null, chainHead,
+    lagBlocks: chainHead === null ? null : Math.max(0, chainHead - nextBlock + 1), syncing: busy, lastSync,
+  }));
   if (req.method === "POST" && req.url?.startsWith("/v1/graphql")) {
     let body = "";
     for await (const c of req) body += c;
     try {
       const { query, variables } = JSON.parse(body);
-      if (Date.now() - lastSync > 800) await sync(); // read-your-writes, without hammering a public RPC
+      if (Date.now() - lastSync > 800) void sync(); // Do not block reads behind a slow backfill/RPC.
       const data = await runQuery(query, variables);
-      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data }));
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data, extensions: { freshness: {
+        indexedBlock: lastSync ? nextBlock - 1 : null, chainHead,
+        lagBlocks: chainHead === null ? null : Math.max(0, chainHead - nextBlock + 1),
+        error: syncError, syncedAt: lastSync,
+      } } }));
     } catch (e: any) {
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ errors: [{ message: e?.message || String(e) }] }));
     }
@@ -179,6 +198,6 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404).end();
 });
 
-await sync();
+void sync();
 setInterval(sync, POLL_MS);
 server.listen(PORT, () => console.log(`dev indexer on :${PORT}/v1/graphql (reading ${FAMFI} via ${RPC})`));

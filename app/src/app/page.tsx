@@ -1,53 +1,27 @@
 "use client";
 import Link from "next/link";
-import { Button, Card, Shell } from "@/components/ui";
+import { Shell } from "@/components/ui";
+import { AnimatedOutline, FlowDiagram } from "@/components/effects";
 
 export default function Home() {
-  return (
-    <Shell>
-      <section className="relative pt-6">
-        <div className="animate-fadeUp">
-          <span className="inline-flex items-center gap-2 rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-xs font-bold text-brand">
-            <span className="h-2 w-2 animate-pulseRing rounded-full bg-brand" /> Live on Monad · settles in ~1 second
-          </span>
-          <h1 className="mt-5 text-5xl font-extrabold leading-[1.02] tracking-tight sm:text-6xl">
-            Allowance that <span className="yellow-grad bg-clip-text text-transparent">grows up</span> with your kid.
-          </h1>
-          <p className="mt-5 max-w-md text-base text-muted">
-            Teens pay friends by name inside limits their parents set. Save toward a goal and a relative&apos;s gift matches every dollar
-            you put in. Settled in about a second.
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <Link href="/parent">
-              <Button>I&apos;m a parent</Button>
-            </Link>
-            <Link href="/teen">
-              <Button variant="ghost">I&apos;m a teen</Button>
-            </Link>
-            <Link href="/gift">
-              <Button variant="ghost">I want to give a gift</Button>
-            </Link>
-          </div>
-        </div>
-
-      </section>
-
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
-        {[
-          ["Spend inside limits", "A daily limit that rises as you hit goals. Bigger payments wait for a parent's tap."],
-          ["Unusual? It pauses", "A first big payment to someone new is held for a few minutes and a parent is alerted. A delay and an alert, not a guarantee."],
-          ["Gifts that match", "A relative locks a gift. Every dollar you save releases a dollar of theirs, in the same moment."],
-        ].map(([t, d]) => (
-          <Card key={t}>
-            <h3 className="font-extrabold text-brand">{t}</h3>
-            <p className="mt-1 text-sm text-muted">{d}</p>
-          </Card>
-        ))}
+  return <Shell><main id="main-content" className="landing">
+    <section className="landing-hero">
+      <p className="eyebrow"><span className="status-dot"/> FAMILY MONEY. A LITTLE MORE INDEPENDENT.</p>
+      <h1>A little freedom.<br/>A lot of possibility.</h1>
+      <p className="landing-description">Their first allowance. A goal worth saving for.<br className="desktop-break"/> One place to build better money habits, together.</p>
+      <div className="landing-actions"><Link href="/parent" className="landing-button">Start as a parent <span aria-hidden="true">↗</span></Link><Link href="/teen" className="landing-button landing-button-secondary">I'm a teen</Link></div>
+      <Link href="/gift" className="text-link">Help someone reach their goal <span aria-hidden="true">↗</span></Link>
+    </section>
+    <div className="feature-ribbon" aria-label="Fam-Fi features"><span>Allowance, without the friction</span><i/><span>Limits you choose</span><i/><span>Goals worth saving for</span><i/><span>Every action, a clear story</span></div>
+    <section id="how-it-works" className="landing-showcase">
+      <div className="showcase-heading"><div><p className="eyebrow">ONE FAMILY. CONNECTED.</p><h2>Good habits.<br/>Built into everyday money.</h2></div><p>A little guidance now.<br/>More confidence for what comes next.</p></div>
+      <div className="feature-panels">
+        <article className="feature-panel"><span className="feature-number">01 / FREEDOM</span><h3>Their money.<br/>Their next step.</h3><p>Fund an allowance. Your teen pays friends by Fam-ID, within the limits you choose.</p><div className="diagram-frame"><AnimatedOutline accent="coral"/><FlowDiagram variant="allowance"/></div><Link href="/parent" className="feature-link">Set up your family <span aria-hidden="true">↗</span></Link></article>
+        <article className="feature-panel"><span className="feature-number">02 / GUIDANCE</span><h3>A pause.<br/>When it matters.</h3><p>Unusual payments are held for review. Spending rules stay clear, with you in control.</p><div className="diagram-frame"><AnimatedOutline accent="blue" delay={2}/><FlowDiagram variant="guidance"/></div><Link href="/parent?view=family" className="feature-link">Choose their starting rules <span aria-hidden="true">↗</span></Link></article>
+        <article className="feature-panel"><span className="feature-number">03 / MOMENTUM</span><h3>Small savings.<br/>Something bigger.</h3><p>A goal, a matched gift, a funded mission. Give their effort something real behind it.</p><div className="diagram-frame"><AnimatedOutline accent="mint" delay={4}/><FlowDiagram variant="saving"/></div><Link href="/gift" className="feature-link">Help a goal along <span aria-hidden="true">↗</span></Link></article>
       </div>
-
-      <p className="mt-8 text-center text-xs text-dim">
-        This runs on a test network. The dollars here are test USDC and have no value. Unaudited software; do not use real money.
-      </p>
-    </Shell>
-  );
+    </section>
+    <section className="landing-closing"><p className="eyebrow">LOOKING A LITTLE FURTHER AHEAD</p><h2>A future of their own.<br/>A family behind them.</h2><p>FutureFund sets test money aside for a chosen horizon.<br/>It holds money in the contract ledger; it does not invest it or earn returns.</p><Link href="/parent?view=savings" className="landing-button">Explore savings & future <span aria-hidden="true">↗</span></Link><div className="orbit-mark" aria-hidden="true"><i/><i/><i/></div></section>
+    <footer className="landing-footer"><span>fam-fi. <span className="footer-muted">Made for families, on Monad.</span></span><span>Testnet prototype · Test USDC has no real value.</span></footer>
+  </main></Shell>;
 }

@@ -1,6 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Button, Card, ConfirmDialog, Empty, Field, Input, Pill } from "@/components/ui";
+import { useSearchParams } from "next/navigation";
+import { MissionReview } from "./mission-review";
+import { ActionError, Button, Card, ConfirmDialog, Empty, Field, Input, Pill } from "@/components/ui";
 import { readMission } from "@/lib/chain";
 import { byteLen, big, cap, dateText, dateTimeText, dayString, endOfDay, fmt, parseAmount } from "@/lib/format";
 import { useAct } from "@/lib/hooks";
@@ -58,11 +60,12 @@ export function ParentMissions({
   onChanged: Changed;
 }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const [teen, setTeen] = useState("");
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
-  const [reward, setReward] = useState("");
+  const fundingQuery = useSearchParams();
+  const [reward, setReward] = useState(fundingQuery.get("allocate") === "mission" ? fundingQuery.get("amount") ?? "" : "");
   const [date, setDate] = useState(dayString(7));
   const [goalId, setGoalId] = useState("0");
   const [confirm, setConfirm] = useState(false);
@@ -104,7 +107,7 @@ export function ParentMissions({
 
   return (
     <Card title="Money missions" right={open > 0 ? <Pill tone="sun">{open} open · {fmt(reserved)} set aside</Pill> : undefined}>
-      <p className="mb-3 text-sm text-muted">Commit a reward before the task starts. The money is set aside for your teen the moment you create the mission, so they know it&apos;s real.</p>
+      <ActionError error={actionError}/><p className="mb-3 text-sm text-muted">Commit a reward before the task starts. The money is set aside for your teen the moment you create the mission, so they know it&apos;s real.</p>
       {teens.length === 0 ? (
         <Empty>Once a teen has joined your family you can set them a mission here.</Empty>
       ) : (
@@ -166,7 +169,7 @@ export function ParentMissions({
 
 function ParentMissionRow({ m, onChanged }: { m: MissionRow; onChanged: Changed }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const [ask, setAsk] = useState(false);
   const late = Math.floor(Date.now() / 1000) > m.deadline;
   const canCancel = (m.status === "ACTIVE" || m.status === "REJECTED") && !late;
@@ -182,7 +185,7 @@ function ParentMissionRow({ m, onChanged }: { m: MissionRow; onChanged: Changed 
     }, okMsg);
 
   return (
-    <div className="rounded-2xl border border-line bg-card2/60 p-4">
+    <div className="rounded-2xl border border-line bg-card2/60 p-4"><ActionError error={actionError}/>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-semibold">{m.title}</p>
@@ -192,6 +195,7 @@ function ParentMissionRow({ m, onChanged }: { m: MissionRow; onChanged: Changed 
       </div>
       {m.description && <p className="mt-2 text-sm text-muted">{m.description}</p>}
       <p className="mt-2 text-sm text-muted">{explain(m, "parent")}</p>
+      {m.status === "SUBMITTED" && <MissionReview id={m.id} onChanged={onChanged}/>}
       <p className="mt-1 text-xs text-dim">Created {dateTimeText(m.createdAt)} · <SourceLink tx={m.txHash} />{m.lastTxHash !== m.txHash && <> · latest change <SourceLink tx={m.lastTxHash} /></>}</p>
       {(canCancel || canExpire) && (
         <div className="mt-3">
@@ -216,7 +220,7 @@ function ParentMissionRow({ m, onChanged }: { m: MissionRow; onChanged: Changed 
 
 export function TeenMissions({ missions, frozen, onChanged }: { missions: MissionRow[]; frozen: boolean; onChanged: Changed }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const live = missions.filter((m) => ["ACTIVE", "SUBMITTED", "REJECTED"].includes(m.status));
   const done = missions.filter((m) => !["ACTIVE", "SUBMITTED", "REJECTED"].includes(m.status));
   const now = Math.floor(Date.now() / 1000);
@@ -231,7 +235,7 @@ export function TeenMissions({ missions, frozen, onChanged }: { missions: Missio
     }, "Sent to your parent for review. Nothing is paid until they approve.");
 
   return (
-    <Card title="Missions" right={live.length > 0 ? <Pill tone="mint">{live.length} open</Pill> : undefined}>
+    <Card title="Missions" right={live.length > 0 ? <Pill tone="mint">{live.length} open</Pill> : undefined}><ActionError error={actionError}/>
       {missions.length === 0 ? (
         <Empty>No missions yet. When your parent sets you one, the reward is already set aside and you&apos;ll see it here.</Empty>
       ) : (
@@ -250,6 +254,7 @@ export function TeenMissions({ missions, frozen, onChanged }: { missions: Missio
                 </div>
                 {m.description && <p className="mt-2 text-sm text-muted">{m.description}</p>}
                 <p className="mt-2 text-sm text-muted">{explain(m, "teen")}</p>
+                {m.status === "SUBMITTED" && <MissionReview id={m.id} onChanged={onChanged}/>}
                 {m.status === "REJECTED" && m.feedback && <p className="mt-2 rounded-xl bg-bad/10 px-3 py-2 text-sm text-bad">Feedback: {m.feedback}</p>}
                 {canSubmit && (
                   <div className="mt-3">

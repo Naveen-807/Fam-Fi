@@ -1,16 +1,20 @@
 "use client";
 import Link from "next/link";
+import { Workspace, teenSections, useWorkspaceView } from "@/components/workspace";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Button, Card, Empty, Field, GoalCard, Input, Money, Pill, Proof, Shell, SignIn, Timeline, useToast } from "@/components/ui";
+import { ActionError, Button, Card, ConfirmDialog, Empty, Field, GoalCard, Input, Money, Pill, Proof, Shell, SignIn, Timeline, useToast } from "@/components/ui";
 import { QR } from "@/components/qr";
 import { Account, famIdBytes, ROLE, liveSpendable } from "@/lib/chain";
 import { faucet, relay, TxResult } from "@/lib/relay";
 import { Q, useGql } from "@/lib/gql";
-import { useAct, useMe, useNow, useTeenView } from "@/lib/hooks";
+import { useAct, useFamilyParent, useMe, useNow, useTeenView } from "@/lib/hooks";
 import { useWallet } from "@/lib/wallet";
+import { FamilyConnections, FeaturedGoal } from "@/components/family-visuals";
+import { SavingStory } from "@/components/saving-story";
 import { big, cap, fmt, parseAmount } from "@/lib/format";
 import { usePrivate, type Bundle } from "@/lib/private";
+import { FeatureGate, SyncNotice, useCapabilities } from "@/components/flow-status";
 import { TeenMissions } from "@/components/missions";
 import { Passport } from "@/components/passport";
 import { TeenFutureFund } from "@/components/futurefund";
@@ -25,7 +29,7 @@ export default function TeenPage() {
 
 function TeenInner() {
   const { signer } = useWallet();
-  const { acct, loaded } = useMe();
+  const { acct, loaded, error: accountError, refresh: refreshAccount } = useMe();
 
   if (!signer)
     return (
@@ -37,13 +41,14 @@ function TeenInner() {
       </Shell>
     );
   if (!loaded) return <Shell><Empty>Loading…</Empty></Shell>;
+  if (accountError) return <Shell><Card title="Couldn’t check your account"><p role="alert">{accountError}</p><Button onClick={() => void refreshAccount()}>Try again</Button></Card></Shell>;
   if (!acct || acct.role === ROLE.NONE)
     return (
       <Shell>
         <Card className="mx-auto mt-6 max-w-md text-center">
           <h1 className="text-xl font-bold">You need an invite</h1>
           <p className="mt-2 text-sm text-muted">Teens join with a link from a parent. Ask yours to open the Fam-Fi parent page and create an invite.</p>
-          <Link href="/parent"><Button className="mt-4" variant="ghost">I&apos;m a parent</Button></Link>
+          <Link href="/parent" className="link-button link-button-secondary mt-4">I&apos;m a parent</Link>
         </Card>
       </Shell>
     );
@@ -53,21 +58,23 @@ function TeenInner() {
         <Card className="mx-auto mt-6 max-w-md text-center">
           <h1 className="text-xl font-bold">This account isn&apos;t a teen</h1>
           <p className="mt-2 text-sm text-muted">Signed in as @{acct.famId}.</p>
-          <Link href={acct.role === ROLE.PARENT ? "/parent" : "/gift"}><Button className="mt-4" variant="ghost">Go to your view</Button></Link>
+          <Link href={acct.role === ROLE.PARENT ? "/parent" : "/gift"} className="link-button link-button-secondary mt-4">Go to your view</Link>
         </Card>
       </Shell>
     );
-  return <Shell famId={acct.famId} role="teen"><Dashboard acct={acct} /></Shell>;
+  return <Shell famId={acct.famId} role="teen"><Dashboard key={signer.address.toLowerCase()} acct={acct} /></Shell>;
 }
 
 function Dashboard({ acct }: { acct: Account }) {
   const { signer } = useWallet();
   const me = signer!.address.toLowerCase();
-  const { view, refresh } = useTeenView(signer!.address, 2000);
+  const { view, refresh, error: balanceError } = useTeenView(signer!.address, 2000);
   const now = useNow(250);
-  const [tab, setTab] = useState<"home" | "timeline">("home");
-  const timeline = useGql<{ TimelineEntry: any[] }>(Q.timelineOf, { a: me }, `tl${me}`);
+  const section = useWorkspaceView(teenSections);
+
   const priv = usePrivate();
+  const capabilities = useCapabilities();
+  const parentId = useFamilyParent(acct.familyId);
   const toast = useToast();
   const changed = useCallback(
     async (until?: (b: Bundle) => boolean) => {
@@ -83,13 +90,16 @@ function Dashboard({ acct }: { acct: Account }) {
   const limit = view.limits[view.level] ?? 0n;
 
   return (
-    <div className="space-y-5">
-      <Card hero>
+    <Workspace sections={teenSections} view={section} famId={acct.famId} role="teen">
+      <SyncNotice bundle={priv.bundle} />
+      {balanceError && <p className="service-notice" role="status">{balanceError} <Button variant="ghost" onClick={()=>void refresh()}>Retry balances</Button></p>}
+      {parentId && <FamilyConnections parent={parentId} teens={[{id: me, famId: acct.famId, frozen:view.frozen}]}/>}
+      {section === "overview" && <Card hero>
         <div className="relative flex items-start justify-between gap-3">
           <div>
-            <p className="text-sm text-dim">You can spend</p>
+            <p className="text-sm text-dim">My money</p>
             <Money value={spendable} size="xl" />
-            {view.rate > 0n && view.streamRemaining > 0n && <p className="mt-1 text-xs font-medium text-brand">▲ allowance flowing in</p>}
+            {view.rate > 0n && view.streamRemaining > 0n && <p className="mt-1 text-xs font-medium text-brand">Allowance accrues continuously · {fmt(view.rate * 3600n)} / hour</p>}
           </div>
           <div className="text-right">
             <Pill tone="mint">Level {view.level + 1}</Pill>
@@ -105,42 +115,27 @@ function Dashboard({ acct }: { acct: Account }) {
             Your parent has frozen spending for now. You can still save, and money can still come in.
           </p>
         )}
+        <p className="mt-3 text-sm text-muted">Allowance budget remaining: {fmt(view.streamRemaining > view.accrued ? view.streamRemaining - view.accrued : 0n)}{view.rate > 0n && view.streamRemaining > view.accrued ? ` · estimated end ${new Date(view.fetchedAt + Number((view.streamRemaining-view.accrued)/view.rate)*1000).toLocaleString()}` : ""}</p>
+        <Link className="link-button mt-3" href="/teen?view=payments&ask=parent">Ask my parent</Link>
         <MyCode famId={acct.famId} />
         <AddMoney famId={acct.famId} onDone={refresh} />
-      </Card>
+      </Card>}
 
-      <div className="flex gap-2" role="tablist">
-        {(["home", "timeline"] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`rounded-full px-4 py-1.5 text-sm font-semibold ${tab === t ? "bg-brand text-onbrand" : "bg-card2 text-muted ring-1 ring-line"}`}>
-            {t === "home" ? "Home" : "Timeline"}
-          </button>
-        ))}
-      </div>
-
-      {tab === "timeline" ? (
-        <Card title="Your timeline"><Timeline rows={timeline.data?.TimelineEntry} /></Card>
-      ) : (
-        <div className="grid items-start gap-5 lg:grid-cols-2">
-          <div className="space-y-5">
-            <PayCard acct={acct} onDone={refresh} />
-            <Held me={me} view={view} onDone={refresh} />
-            <TeenMissions missions={priv.bundle?.data.missions ?? []} frozen={view.frozen} onChanged={changed} />
-            <Requests acct={acct} me={me} onDone={refresh} />
-          </div>
-          <div className="space-y-5">
-            <Passport bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error} />
-            <TeenFutureFund bundle={priv.bundle} onChanged={changed} fetchedAt={priv.fetchedAt} error={priv.error} />
-            <Goals acct={acct} me={me} view={view} onDone={refresh} />
-            <SplitCard onDone={refresh} />
-          </div>
-        </div>
-      )}
-    </div>
+      {priv.error && <p className="service-notice" role="status">Your history is temporarily unavailable. Your spending balance comes directly from the network; <span>{priv.error}</span> <Button variant="ghost" onClick={() => void priv.refresh()}>Retry family access</Button></p>}
+      {section === "overview" && priv.bundle && <FeaturedGoal goals={priv.bundle.data.goals}/>}
+      {section === "overview" && priv.bundle && <TeenMissions missions={priv.bundle.data.missions.filter(m=>m.status==="ACTIVE" || m.status==="REJECTED" || m.status==="SUBMITTED").sort((a,b)=>Number(a.status==="SUBMITTED")-Number(b.status==="SUBMITTED")).slice(0,1)} frozen={view.frozen} onChanged={changed}/>}
+      {section === "overview" && <div className="overview-columns"><Passport bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error} /><Held me={me} view={view} bundle={priv.bundle} onDone={() => { void refresh(); void priv.refresh(); }} /></div>}
+      {section === "payments" && <div className="grid gap-8 lg:grid-cols-2"><div className="space-y-8"><PayCard acct={acct} onDone={refresh} /><Held me={me} view={view} bundle={priv.bundle} onDone={() => { void refresh(); void priv.refresh(); }} /></div><div className="space-y-8"><Requests parentId={parentId} bundle={priv.bundle} me={me} onDone={() => { void refresh(); void priv.refresh(); }} /><SplitCard onDone={refresh} /></div></div>}
+      {section === "missions" && <FeatureGate supported={capabilities.missions} label="Missions">{!priv.bundle || priv.error || priv.bundle.indexerError ? <Card title="Missions"><Empty>{priv.error || priv.bundle?.indexerError ? "Mission history is unavailable until family access is restored. Your parent's reserved rewards remain in the contract." : "Loading confirmed missions…"}</Empty></Card> : <TeenMissions missions={priv.bundle.data.missions} frozen={view.frozen} onChanged={changed} />}</FeatureGate>}
+      {section === "savings" && <div className="space-y-8"><SavingStory bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error} onRetry={priv.refresh} /><Goals acct={acct} me={me} view={view} bundle={priv.bundle} onDone={() => { refresh(); void priv.refresh(); }} /><FeatureGate supported={capabilities.futureFund} label="FutureFund"><TeenFutureFund bundle={priv.bundle} onChanged={changed} fetchedAt={priv.fetchedAt} error={priv.error} /></FeatureGate></div>}
+      {section === "activity" && <Passport bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error}/>}
+      {section === "activity" && <Card title="Your timeline">{priv.error || priv.bundle?.indexerError ? <Empty>Activity is unavailable while the indexer catches up.</Empty> : <Timeline rows={priv.bundle?.data.timeline} />}</Card>}
+    </Workspace>
   );
 }
 
 function AddMoney({ famId, onDone }: { famId: string; onDone: () => void }) {
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   return (
     <div className="mt-3">
       <button
@@ -210,7 +205,7 @@ function ScanButton({ onFound }: { onFound: (famId: string) => void }) {
 
 function PayCard({ acct, onDone }: { acct: Account; onDone: () => void }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const toast = useToast();
   const params = useSearchParams();
   const [to, setTo] = useState((params.get("pay") || "").toLowerCase());
@@ -248,7 +243,7 @@ function PayCard({ acct, onDone }: { acct: Account; onDone: () => void }) {
   }
 
   return (
-    <Card title="Pay someone">
+    <Card title="Pay someone"><ActionError error={actionError}/>
       <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
         <Field label="To (Fam-ID)" hint={lookalike ? `Careful: this looks a lot like @${lookalike}.` : undefined}>
           <Input list="famids" value={to} onChange={(e) => setTo(e.target.value.toLowerCase().replace(/^@/, "").replace(/[^a-z0-9_]/g, ""))} placeholder="e.g. canteen" aria-label="Pay to Fam-ID" />
@@ -273,25 +268,24 @@ function PayCard({ acct, onDone }: { acct: Account; onDone: () => void }) {
 
 // ───────────────────────── held payments ─────────────────────────
 
-function Held({ me, view, onDone }: { me: string; view: { strictHolds: boolean }; onDone: () => void }) {
+function Held({ me, view, bundle, onDone }: { me: string; view: { strictHolds: boolean; frozen: boolean }; bundle: Bundle | null; onDone: () => void }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const now = useNow(1000) / 1000;
-  const { data } = useGql<{ Pending: any[] }>(Q.pendingOf, { a: me }, `h${me}`);
-  const rows = data?.Pending ?? [];
+  const rows = bundle?.data.teenHolds ?? [];
   if (!rows.length) return null;
   return (
-    <Card title="On hold">
+    <Card title="On hold"><ActionError error={actionError}/>
       <div className="space-y-3">
         {rows.map((p) => {
           const over = p.kind === "OVER_LIMIT";
           const left = Math.max(0, Number(p.releaseAt) - now);
-          const canRelease = !over && !view.strictHolds && left <= 0;
+          const canRelease = !over && !view.strictHolds && !view.frozen && left <= 0;
           return (
             <div key={p.id} className="rounded-xl border border-warn/30 bg-warn/10 p-4">
               <p className="font-semibold">{fmt(big(p.amount))} to {cap(p.toFamId)}</p>
               <p className="mt-1 text-sm text-muted">
-                {over ? "Waiting for your parent to approve." : view.strictHolds ? "Waiting for your parent to approve." : left > 0 ? `You can release it in ${Math.ceil(left)}s unless your parent says no.` : "The hold is over. You can release it now."}
+                {over || view.strictHolds ? "Waiting for your parent to approve." : view.frozen ? "Spending is frozen. You can cancel this payment, or your parent can review it." : left > 0 ? `You can release it in ${Math.ceil(left)}s unless your parent says no.` : "The hold is over. You can release it now."}
               </p>
               <div className="mt-3 flex gap-2">
                 {!over && !view.strictHolds && (
@@ -309,27 +303,25 @@ function Held({ me, view, onDone }: { me: string; view: { strictHolds: boolean }
 
 // ───────────────────────── asking for and answering requests ─────────────────────────
 
-function Requests({ acct, me, onDone }: { acct: Account; me: string; onDone: () => void }) {
+function Requests({ parentId, bundle, me, onDone }: { parentId: string; bundle: Bundle | null; me: string; onDone: () => void }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const toast = useToast();
-  const fam = useGql<{ Family: { parentFamId: string }[] }>(Q.family, { f: acct.familyId }, `f${acct.familyId}`, 10000);
-  const incoming = useGql<{ Request: any[] }>(Q.requestsTo, { a: me }, `r${me}`);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
-  const parentId = fam.data?.Family?.[0]?.parentFamId ?? "";
   const target = to || parentId;
+  const incomingRows = bundle?.data.incomingRequests ?? [];
 
   async function ask() {
     const amt = parseAmount(amount);
     if (!target) return toast.err("Who are you asking?");
     if (!amt) return toast.err("Enter an amount.");
-    if (await run("ask", () => relay(signer!, "createRequest", [famIdBytes(target), amt, memo.trim().slice(0, 60)]), `Asked @${target} for ${fmt(amt)}`)) { setAmount(""); setMemo(""); }
+    if (await run("ask", () => relay(signer!, "createRequest", [famIdBytes(target), amt, memo.trim().slice(0, 60)]), `Asked @${target} for ${fmt(amt)}`)) { setAmount(""); setMemo(""); onDone(); }
   }
 
   return (
-    <Card title="Ask for money">
+    <Card title="Ask for money"><ActionError error={actionError}/>
       <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
         <Field label="Ask who?" hint={parentId && !to ? "Your parent, unless you pick someone else." : undefined}>
           <Input value={to} onChange={(e) => setTo(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))} placeholder={parentId || "Fam-ID"} aria-label="Ask who" />
@@ -337,12 +329,13 @@ function Requests({ acct, me, onDone }: { acct: Account; me: string; onDone: () 
         <Field label="Amount"><Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="5.00" aria-label="Request amount" /></Field>
       </div>
       <div className="mt-3"><Field label="What for?"><Input value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="school trip" maxLength={60} aria-label="Request note" /></Field></div>
-      <Button className="mt-4" variant="soft" busy={busy === "ask"} onClick={ask}>Send request</Button>
+      <Button className="mt-4" variant="soft" busy={busy === "ask"} disabled={!target} onClick={ask}>Send request</Button>
 
-      {(incoming.data?.Request ?? []).length > 0 && (
+      {!!bundle?.data.outgoingRequests?.length && <div className="mt-4 space-y-2"><p className="text-xs font-semibold text-dim">Waiting for a reply</p>{bundle.data.outgoingRequests.map((r) => <p key={r.id} className="text-sm">Asked @{r.toFamId} for {fmt(big(r.amount))} · pending</p>)}</div>}
+      {incomingRows.length > 0 && (
         <div className="mt-5 space-y-2 border-t border-line pt-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-dim">Asking you</p>
-          {incoming.data!.Request.map((r) => (
+          {incomingRows.map((r) => (
             <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card2 p-3">
               <p className="text-sm"><span className="font-semibold">{cap(r.fromFamId)}</span> asks for <span className="num font-semibold">{fmt(big(r.amount))}</span>{r.memo ? ` · ${r.memo}` : ""}</p>
               <Button busy={busy === "pr" + r.id} onClick={async () => { if (await run("pr" + r.id, () => relay(signer!, "payRequest", [BigInt(r.id)]), "Paid")) onDone(); }}>Pay</Button>
@@ -358,7 +351,7 @@ function Requests({ acct, me, onDone }: { acct: Account; me: string; onDone: () 
 
 function SplitCard({ onDone }: { onDone: () => void }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const toast = useToast();
   const [total, setTotal] = useState("");
   const [people, setPeople] = useState("3");
@@ -382,7 +375,7 @@ function SplitCard({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <Card title="Split a bill">
+    <Card title="Split a bill"><ActionError error={actionError}/>
       <p className="mb-3 text-sm text-muted">Paid for everyone? Share a link. Each friend pays their part straight to you, and you can watch it fill up.</p>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Total bill"><Input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} placeholder="12.00" aria-label="Bill total" /></Field>
@@ -395,7 +388,7 @@ function SplitCard({ onDone }: { onDone: () => void }) {
           <Input readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="Split link" />
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="ghost" onClick={async () => { await navigator.clipboard?.writeText(link); toast.ok("Link copied"); }}>Copy link</Button>
-            <Link href={link.replace(window.location.origin, "")}><Button variant="ghost">Watch it fill up</Button></Link>
+            <Link href={link.replace(window.location.origin, "")} className="link-button link-button-secondary">Watch it fill up</Link>
             <QR value={link} size={110} />
           </div>
         </div>
@@ -406,33 +399,35 @@ function SplitCard({ onDone }: { onDone: () => void }) {
 
 // ───────────────────────── goals ─────────────────────────
 
-function Goals({ acct, me, view, onDone }: { acct: Account; me: string; view: { roundUpGoal: number; roundUpUnit: bigint }; onDone: () => void }) {
+function Goals({ acct, me, view, bundle, onDone }: { acct: Account; me: string; view: { roundUpGoal: number; roundUpUnit: bigint }; bundle: Bundle | null; onDone: () => void }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const toast = useToast();
-  const goals = useGql<{ Goal: any[] }>(Q.goalsOf, { a: me }, `go${me}`);
+  const rows = bundle?.data.goals;
   const [title, setTitle] = useState("");
   const [target, setTarget] = useState("");
   const [days, setDays] = useState("30");
   const [save, setSave] = useState<Record<string, string>>({});
   const [shop, setShop] = useState("");
+  const now = useNow(1000) / 1000;
+  const [closing, setClosing] = useState<{ id: string; memo: string; saved: string; matched: string } | null>(null);
 
   async function propose() {
     const t = parseAmount(target);
     const d = Number(days);
     if (!title.trim()) return toast.err("What are you saving for?");
     if (!t) return toast.err("How much does it cost?");
-    if (!Number.isFinite(d) || d < 1) return toast.err("Pick a number of days.");
+    if (!Number.isSafeInteger(d) || d < 1 || d > 3650) return toast.err("Pick a whole number of days between 1 and 3650.");
     const deadline = Math.floor(Date.now() / 1000) + d * 86400;
-    if (await run("prop", () => relay(signer!, "proposeGoal", [t, deadline, 2500, title.trim().slice(0, 40)]), "Sent to your parent for approval")) { setTitle(""); setTarget(""); }
+    if (await run("prop", () => relay(signer!, "proposeGoal", [t, deadline, 2500, title.trim().slice(0, 40)]), "Sent to your parent for approval")) { setTitle(""); setTarget(""); onDone(); }
   }
 
   void acct;
   return (
-    <Card title="Goals">
+    <Card title="Goals"><ActionError error={actionError}/>
       <div className="space-y-3">
-        {goals.data?.Goal.length === 0 && <Empty>Saving for something? Add a goal. A relative can match what you save.</Empty>}
-        {goals.data?.Goal.map((g) => (
+        {rows?.length === 0 && <Empty>Saving for something? Add a goal. A relative can match what you save.</Empty>}
+        {rows?.map((g) => (
           <GoalCard key={g.id} g={g}>
             {g.status === "ACTIVE" && (
               <>
@@ -474,9 +469,19 @@ function Goals({ acct, me, view, onDone }: { acct: Account; me: string; view: { 
                 <Button busy={busy === "b" + g.id} onClick={async () => { if (!shop) return toast.err("Which shop?"); if (await run("b" + g.id, () => relay(signer!, "payFromGoal", [BigInt(g.id), famIdBytes(shop)]), "Bought it! 🎉")) onDone(); }}>Spend it</Button>
               </div>
             )}
+            {g.status === "ACTIVE" && Number(g.deadline) < now && <Button variant="ghost" onClick={() => setClosing(g)}>Close and return my savings</Button>}
           </GoalCard>
         ))}
       </div>
+
+      <ConfirmDialog open={!!closing} title="Close this goal?" confirmLabel="Close and return savings" busy={busy === "close-goal"}
+        onCancel={() => setClosing(null)}
+        onConfirm={async () => {
+          if (!closing) return;
+          const tx = await run("close-goal", () => relay(signer!, "closeGoal", [BigInt(closing.id)]), "Goal closed. Saved money returned to your balance.");
+          if (tx) { setClosing(null); onDone(); }
+        }}
+        lines={closing ? [`${closing.memo} will close. ${fmt(big(closing.saved) + big(closing.matched))} returns to your spendable balance.`, "Unreleased gift money stays available for its contributor to reclaim."] : []} />
 
       <div className="mt-5 border-t border-line pt-4">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-dim">New goal</p>

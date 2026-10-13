@@ -3,6 +3,8 @@ import cors from "cors";
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { mountPrivate } from "./private.js";
+import { capabilitiesReader } from "./capabilities.js";
+import { confirmedTeenStore } from "./roster.js";
 
 const abi = (name: string) => JSON.parse(readFileSync(new URL(`../../abi/${name}.json`, import.meta.url), "utf8"));
 const FAMFI_ABI = abi("FamFi");
@@ -28,6 +30,9 @@ export interface RelayerConfig {
   faucetStatePath: string | null;
   /** Envio GraphQL endpoint used by the authenticated /private/query reads. Empty disables them. */
   envioUrl?: string;
+  rosterStatePath?: string | null;
+  /** Explicit isolated V2 test/release selection. Never inferred from a live address. */
+  contractVersion?: "v1" | "v2";
 }
 
 /** Functions a user may relay. depositFor is excluded: it pulls USDC from the caller and only the treasury uses it. */
@@ -37,11 +42,13 @@ export function createApp(cfg: RelayerConfig) {
   const provider = new ethers.JsonRpcProvider(cfg.rpcUrl, undefined, { staticNetwork: true });
   const relayer = new ethers.NonceManager(new ethers.Wallet(cfg.relayerKey, provider));
   const treasury = new ethers.NonceManager(new ethers.Wallet(cfg.treasuryKey, provider));
-  const famfiIface = new ethers.Interface(FAMFI_ABI);
+  const selectedAbi = cfg.contractVersion === "v2" ? abi("FamFiV2") : FAMFI_ABI;
+  const famfiIface = new ethers.Interface(selectedAbi);
   const forwarderRead = new ethers.Contract(cfg.forwarder, FORWARDER_ABI, provider);
   const forwarderRelay = new ethers.Contract(cfg.forwarder, FORWARDER_ABI, relayer);
-  const famfiRead = new ethers.Contract(cfg.famfi, FAMFI_ABI, provider);
-  const famfiTreasury = new ethers.Contract(cfg.famfi, FAMFI_ABI, treasury);
+  const famfiRead = new ethers.Contract(cfg.famfi, selectedAbi, provider);
+  const roster = confirmedTeenStore(famfiRead, cfg.rosterStatePath === undefined ? ".local/confirmed-teens.json" : cfg.rosterStatePath);
+  const famfiTreasury = new ethers.Contract(cfg.famfi, selectedAbi, treasury);
   const usdc = new ethers.Contract(cfg.usdc, ERC20_ABI, provider);
 
   const allowedSelectors = new Set<string>();
@@ -85,6 +92,10 @@ export function createApp(cfg: RelayerConfig) {
   const app = express();
   app.use(cors({ origin: cfg.allowedOrigin === "*" ? true : cfg.allowedOrigin.split(",") }));
   app.use(express.json({ limit: "32kb" }));
+  const capabilities = capabilitiesReader(famfiRead);
+  app.get("/capabilities", async (_req, res) => {
+    res.json({ contract: cfg.famfi, ...await capabilities() });
+  });
 
   app.get("/health", async (_req, res) => {
     try {
@@ -140,6 +151,7 @@ export function createApp(cfg: RelayerConfig) {
       // Monad charges the gas LIMIT, not the gas used, so size the limit from an estimate instead of padding it.
       const est: bigint = await forwarderRelay.execute.estimateGas(request);
       const tx = await forwarderRelay.execute(request, { gasLimit: (est * 115n) / 100n });
+      void tx.wait().then((receipt: ethers.TransactionReceipt | null) => { if (receipt) roster.record(receipt); }).catch(() => { /* Failed transactions never add a teen. */ });
       res.json({ hash: tx.hash, submittedAt: Date.now() });
     } catch (e: any) {
       res.status(500).json({ error: e?.shortMessage || e?.message || "relay failed" });
@@ -180,14 +192,16 @@ export function createApp(cfg: RelayerConfig) {
     chainId: async () => (await provider.getNetwork()).chainId,
     envioUrl: cfg.envioUrl ?? "",
     limited,
+    knownTeens: roster.addresses,
   });
 
   /** One-time setup: let FamFi pull the treasury's USDC. */
   async function ensureTreasuryAllowance() {
     const owner = await treasury.getAddress();
     const current: bigint = await usdc.allowance(owner, cfg.famfi);
-    if (current < ethers.parseUnits("1000000", 6)) {
-      const tx = await new ethers.Contract(cfg.usdc, ERC20_ABI, treasury).approve(cfg.famfi, ethers.MaxUint256);
+    const funded: bigint = await usdc.balanceOf(owner);
+    if (current !== funded) {
+      const tx = await new ethers.Contract(cfg.usdc, ERC20_ABI, treasury).approve(cfg.famfi, funded);
       await tx.wait();
     }
   }

@@ -72,6 +72,8 @@ type Goal {
 
 type Gift {
   id: ID!
+  familyId: Int!
+  teen: String!
   goalId: String!
   sponsor: String!
   sponsorFamId: String!
@@ -171,6 +173,18 @@ type ProgressEvent {
 }
 
 # Running totals per teen. Counts and base-unit sums of responsible actions only; there is no score.
+type Achievement {
+  id: ID! # teen-kind
+  teen: String!
+  familyId: Int!
+  kind: String!
+  sourceEvent: String!
+  txHash: String!
+  blockNumber: Int!
+  logIndex: Int!
+  ts: Int!
+}
+
 type TeenProgress {
   id: ID! # teen address
   familyId: Int!
@@ -178,6 +192,7 @@ type TeenProgress {
   missionsCompleted: Int!
   missionRewards: BigInt!
   savedTotal: BigInt! # the teen's own savings contributions (a mission reward saved to a goal also counts here)
+  matchedTotal: BigInt! # released family gifts, not the teen's earnings or spending
   goalsCompleted: Int!
   paymentsCompleted: Int! # payments that settled inside the family's rules
   lastEventTs: Int!
@@ -195,10 +210,55 @@ type WeeklyStat {
   missionsCompleted: Int!
   missionRewards: BigInt!
   savedTotal: BigInt!
+  matchedTotal: BigInt!
   goalsCompleted: Int!
   paymentsCompleted: Int!
   allowanceFunded: BigInt!
   heldCount: Int!
+}
+
+# One receipt per transaction and goal, connecting savings, matching and a mission reward.
+# Totals are contributions, never investment returns; totalAfter is the goal's event snapshot.
+type SavingReceipt {
+  id: ID! # txHash-goalId
+  goalId: String!
+  teen: String!
+  teenFamId: String!
+  familyId: Int!
+  goalName: String!
+  ownAmount: BigInt!
+  matchedAmount: BigInt!
+  totalAfter: BigInt!
+  target: BigInt!
+  source: String! # SAVING | MISSION
+  missionId: String!
+  missionTitle: String!
+  ts: Int!
+  blockNumber: Int!
+  txHash: String!
+}
+
+# Source logs remain separate so repeated delivery cannot inflate a combined receipt.
+type SavingContribution {
+  id: ID! # txHash-logIndex
+  receiptId: String!
+  amount: BigInt!
+  matchedAmount: BigInt!
+}
+
+type MatchRelease {
+  id: ID! # txHash-logIndex
+  receiptId: String! # txHash-goalId
+  goalId: String!
+  giftId: String!
+  sponsor: String!
+  sponsorFamId: String!
+  teen: String!
+  familyId: Int!
+  amount: BigInt!
+  ts: Int!
+  blockNumber: Int!
+  txHash: String!
 }
 
 # ── FutureFund: tracked and locked inside Fam-Fi. Never invested. ──

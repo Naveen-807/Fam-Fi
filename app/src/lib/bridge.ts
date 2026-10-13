@@ -18,6 +18,7 @@ export type DynamicAuth = {
   signInWithPasskey: () => Promise<void>;
   /** turn on Face ID / fingerprint for the signed-in user */
   registerPasskey: () => Promise<void>;
+  retryWalletSetup: () => Promise<void>;
 };
 
 export type Bridge = {

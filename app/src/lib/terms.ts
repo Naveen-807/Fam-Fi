@@ -29,7 +29,12 @@ export function decodeTerms(s: string | null): Terms | null {
       return BigInt(x);
     };
     if (!Array.isArray(w.l) || w.l.length !== 4) return null;
-    return { levelLimits: w.l.map(big), newPayeeThreshold: big(w.t), firstDayCap: big(w.f), holdSeconds: Number(w.h), strictHolds: !!w.s };
+    const levelLimits = w.l.map(big);
+    const newPayeeThreshold = big(w.t), firstDayCap = big(w.f);
+    const max = (1n << 128n) - 1n;
+    if ([...levelLimits, newPayeeThreshold, firstDayCap].some((n) => n > max) || levelLimits[0] === 0n || levelLimits.some((n, i) => i > 0 && n < levelLimits[i - 1])) return null;
+    if (!Number.isInteger(w.h) || w.h < 0 || w.h > 86400 || typeof w.s !== "boolean") return null;
+    return { levelLimits, newPayeeThreshold, firstDayCap, holdSeconds: w.h, strictHolds: w.s };
   } catch {
     return null;
   }

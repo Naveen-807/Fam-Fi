@@ -75,15 +75,17 @@ type Counters = {
   missionsCompleted: number;
   missionRewards: bigint;
   savedTotal: bigint;
+  matchedTotal: bigint;
   goalsCompleted: number;
   paymentsCompleted: number;
 };
-const ZERO: Counters = { missionsCompleted: 0, missionRewards: 0n, savedTotal: 0n, goalsCompleted: 0, paymentsCompleted: 0 };
+const ZERO: Counters = { missionsCompleted: 0, missionRewards: 0n, savedTotal: 0n, matchedTotal: 0n, goalsCompleted: 0, paymentsCompleted: 0 };
 
 function bump(c: Counters, kind: string, amount: bigint): Counters {
   switch (kind) {
     case "MISSION_APPROVED": return { ...c, missionsCompleted: c.missionsCompleted + 1, missionRewards: c.missionRewards + amount };
     case "SAVED": return { ...c, savedTotal: c.savedTotal + amount };
+    case "MATCHED": return { ...c, matchedTotal: c.matchedTotal + amount };
     case "GOAL_COMPLETED": return { ...c, goalsCompleted: c.goalsCompleted + 1 };
     case "PAYMENT": return { ...c, paymentsCompleted: c.paymentsCompleted + 1 };
     default: return c;
@@ -93,6 +95,14 @@ function bump(c: Counters, kind: string, amount: bigint): Counters {
 async function familyTz(context: Ctx, familyId: number): Promise<number> {
   const f = await context.Family.get(String(familyId));
   return f ? f.tzOffset : 0;
+}
+
+export async function recordAchievement(context: Ctx, e: {transaction:{hash:string};logIndex:number;block:{number:number;timestamp:number}}, teen: string, familyId: number, kind: string, sourceEvent: string) {
+  const id = `${lc(teen)}-${kind}`;
+  const previous = await context.Achievement.get(id);
+  if (!previous || e.block.number < previous.blockNumber || (e.block.number === previous.blockNumber && e.logIndex < previous.logIndex)) {
+    context.Achievement.set({ id, teen:lc(teen), familyId, kind, sourceEvent, txHash:tx(e), blockNumber:blockNo(e), logIndex:e.logIndex, ts:ts(e) });
+  }
 }
 
 /**
@@ -111,6 +121,9 @@ async function recordProgress(
   if (await context.ProgressEvent.get(id)) return;
   const teen = await person(context, teenAddr);
   if (!teen.user || teen.user.role !== "TEEN") return;
+  if (["MISSION_APPROVED", "SAVED", "GOAL_COMPLETED", "MATCHED"].includes(kind) && (amount > 0n || kind === "GOAL_COMPLETED")) {
+    await recordAchievement(context,e,teenAddr,teen.familyId,kind,id);
+  }
   const tz = await familyTz(context, teen.familyId);
   const week = weekOf(ts(e), tz);
   const weekId = `${lc(teenAddr)}-${week}`;
@@ -414,6 +427,8 @@ on("GiftLocked", async ({ event, context }) => {
   const g = await context.Goal.get(String(event.params.goalId));
   context.Gift.set({
     id: String(event.params.giftId),
+    familyId: g?.familyId ?? 0,
+    teen: g?.teen ?? "",
     goalId: String(event.params.goalId),
     sponsor: lc(event.params.sponsor),
     sponsorFamId: sponsor.user?.famId ?? "",
@@ -438,10 +453,20 @@ on("GiftLocked", async ({ event, context }) => {
 });
 
 on("GiftReleased", async ({ event, context }) => {
+  if (await context.MatchRelease.get(eid(event))) return;
   const gf = await context.Gift.get(String(event.params.giftId));
   if (!gf) return;
   context.Gift.set({ ...gf, escrow: gf.escrow - event.params.amount, released: gf.released + event.params.amount });
   const g = await context.Goal.get(String(event.params.goalId));
+  if (g) {
+    context.MatchRelease.set({
+      id: eid(event), receiptId: `${tx(event)}-${g.id}`, goalId: g.id, giftId: gf.id,
+      sponsor: gf.sponsor, sponsorFamId: gf.sponsorFamId, teen: g.teen, familyId: g.familyId,
+      amount: event.params.amount, ts: ts(event), blockNumber: blockNo(event), txHash: tx(event),
+    });
+    await recordProgress(context, event, g.teen, "MATCHED", event.params.amount,
+      `${cap(gf.sponsorFamId)} matched ${money(event.params.amount)} toward "${g.memo}"`);
+  }
   timeline(context, event, {
     kind: "gift_released",
     text: `${cap(gf.sponsorFamId)}'s gift released ${money(event.params.amount)} into "${g?.memo ?? "the goal"}"`,
@@ -455,8 +480,21 @@ on("GiftReleased", async ({ event, context }) => {
 });
 
 on("GoalSaved", async ({ event, context }) => {
+  if (await context.SavingContribution.get(eid(event))) return;
   const g = await context.Goal.get(String(event.params.goalId));
   if (!g) return;
+  const matchedAmount = event.params.matched - g.matched;
+  const id = `${tx(event)}-${g.id}`;
+  const previous = await context.SavingReceipt.get(id);
+  context.SavingContribution.set({ id: eid(event), receiptId: id, amount: event.params.amount, matchedAmount });
+  context.SavingReceipt.set({
+    id, goalId: g.id, teen: g.teen, teenFamId: g.teenFamId, familyId: g.familyId, goalName: g.memo,
+    ownAmount: (previous?.ownAmount ?? 0n) + event.params.amount,
+    matchedAmount: (previous?.matchedAmount ?? 0n) + matchedAmount,
+    totalAfter: event.params.saved + event.params.matched, target: g.target,
+    source: previous?.source ?? "SAVING", missionId: previous?.missionId ?? "0", missionTitle: previous?.missionTitle ?? "",
+    ts: ts(event), blockNumber: blockNo(event), txHash: tx(event),
+  });
   context.Goal.set({ ...g, saved: event.params.saved, matched: event.params.matched });
   timeline(context, event, {
     kind: "goal_saved",
@@ -692,6 +730,14 @@ on("MissionApproved", async ({ event, context }) => {
     ...m, status: "APPROVED", resolvedAt: ts(event), savedToGoal: event.params.savedToGoal, lastTxHash: tx(event),
   }));
   if (!m) return;
+  // approveMission emits GoalSaved (and matching releases) before MissionApproved.
+  // Correlate by transaction AND goal, never by timestamps or reward amount.
+  if (event.params.savedToGoal) {
+    const receipt = await context.SavingReceipt.get(`${tx(event)}-${m.goalId}`);
+    if (receipt && receipt.teen === m.teen) context.SavingReceipt.set({
+      ...receipt, source: "MISSION", missionId: m.id, missionTitle: m.title,
+    });
+  }
   timeline(context, event, {
     kind: "mission_approved",
     text: `${cap(m.parentFamId)} approved "${m.title}". ${cap(m.teenFamId)} earned ${money(event.params.reward)}${event.params.savedToGoal ? " and it went straight into their savings goal" : ""}`,

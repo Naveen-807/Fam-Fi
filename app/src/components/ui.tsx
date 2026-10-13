@@ -1,5 +1,9 @@
 "use client";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { ThemeToggle } from "@/components/theme";
+import { AnimatedOutline } from "@/components/effects";
+import { GoalVisual } from "@/components/family-visuals";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { cfg } from "@/lib/config";
 import { explorerTx, TxResult } from "@/lib/relay";
@@ -11,6 +15,9 @@ import { fmt, timeAgo, cap, big } from "@/lib/format";
 type Toast = { id: number; kind: "ok" | "err"; text: string };
 const ToastCtx = createContext<{ ok: (t: string) => void; err: (t: string) => void }>({ ok() {}, err() {} });
 export const useToast = () => useContext(ToastCtx);
+export function ActionError({ error }: { error?: string | null }) {
+  return error ? <p className="mt-3 text-sm text-bad" role="alert">{error}</p> : null;
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([]);
@@ -29,7 +36,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             key={t.id}
             role={t.kind === "err" ? "alert" : "status"}
             className={`pop pointer-events-auto max-w-md rounded-2xl px-4 py-3 text-sm font-semibold shadow-glow ${
-              t.kind === "ok" ? "bg-brand text-onbrand" : "bg-bad text-white"
+              t.kind === "ok" ? "bg-brand text-onbrand" : "bg-bad text-onbad"
             }`}
           >
             {t.text}
@@ -48,17 +55,17 @@ export function Button({
   disabled?: boolean; type?: "button" | "submit"; className?: string; full?: boolean;
 }) {
   const styles = {
-    primary: "yellow-grad text-onbrand shadow-[0_6px_24px_-6px_rgba(255,214,10,.55)] hover:brightness-105 disabled:bg-none disabled:bg-line disabled:text-dim disabled:shadow-none",
+    primary: "bg-brand text-onbrand hover:bg-brand-deep disabled:bg-line disabled:text-dim",
     soft: "bg-brand/10 text-brand ring-1 ring-brand/30 hover:bg-brand/20 disabled:text-dim disabled:ring-line",
     ghost: "bg-card2 text-fg ring-1 ring-line hover:ring-brand/50 hover:bg-card disabled:text-dim",
-    danger: "bg-bad text-white hover:bg-bad/90 disabled:bg-line disabled:text-dim",
+    danger: "bg-bad text-onbad hover:bg-bad/90 disabled:bg-line disabled:text-dim",
   }[variant];
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled || busy}
-      className={`inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-bold transition active:scale-[.97] disabled:cursor-not-allowed ${styles} ${full ? "w-full" : ""} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold transition active:scale-[.98] disabled:cursor-not-allowed ${styles} ${full ? "w-full" : ""} ${className}`}
     >
       {busy && <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />}
       {children}
@@ -68,11 +75,11 @@ export function Button({
 
 export function Card({ children, className = "", title, right, hero }: { children: ReactNode; className?: string; title?: string; right?: ReactNode; hero?: boolean }) {
   return (
-    <section className={`relative overflow-hidden rounded-3xl border p-5 animate-fadeUp ${hero ? "border-brand/40 bg-gradient-to-br from-[#26220A] via-card to-card shadow-glow" : "border-line bg-card shadow-card"} ${className}`}>
-      {hero && <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-brand/25 blur-3xl" />}
+    <section className={`surface ${hero ? "surface-account" : ""} ${className}`}>
+      {hero && <AnimatedOutline accent="mint" />}
       {(title || right) && (
         <div className="relative mb-3 flex items-center justify-between gap-3">
-          {title && <h2 className="text-xs font-bold uppercase tracking-[.14em] text-dim">{title}</h2>}
+          {title && <h2 className="text-base font-semibold tracking-tight text-fg">{title}</h2>}
           {right}
         </div>
       )}
@@ -95,7 +102,7 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`w-full rounded-2xl border border-line bg-card2 px-4 py-3 text-sm text-fg outline-none transition placeholder:text-dim focus:border-brand focus:ring-4 focus:ring-brand/15 ${props.className ?? ""}`}
+      className={`w-full rounded-xl border border-line bg-card px-4 py-3 text-sm text-fg outline-none transition placeholder:text-dim/70 focus:border-brand focus:ring-2 focus:ring-brand/15 ${props.className ?? ""}`}
     />
   );
 }
@@ -114,7 +121,7 @@ export function Progress({ value, max, tone = "mint" }: { value: bigint; max: bi
   const pct = max > 0n ? Math.min(100, Number((value * 10000n) / max) / 100) : 0;
   return (
     <div className="h-2.5 w-full overflow-hidden rounded-full bg-card2 ring-1 ring-line" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-      <div className={`h-full rounded-full transition-all duration-500 ${tone === "mint" ? "yellow-grad shadow-[0_0_12px_rgba(255,214,10,.6)]" : "bg-warn"}`} style={{ width: `${pct}%` }} />
+      <div className={`h-full rounded-full transition-all duration-500 ${tone === "mint" ? "bg-brand" : "bg-warn"}`} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -132,20 +139,23 @@ export function Money({ value, size = "md" }: { value: bigint; size?: "sm" | "md
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <p className="rounded-2xl border border-dashed border-line bg-card2/50 px-4 py-6 text-center text-sm text-dim">{children}</p>;
+  return <p className="empty-state">{children}</p>;
 }
 
 // ───────────── layout ─────────────
 export function Shell({ children, famId, role }: { children: ReactNode; famId?: string; role?: string }) {
   const { signer, logout } = useWallet();
+  const landing = usePathname() === "/";
   return (
-    <div className="mx-auto min-h-screen max-w-6xl px-5 pb-24 pt-6 lg:px-10">
-      <header className="mb-6 flex items-center justify-between gap-2">
+    <div className={`app-shell ${role ? "app-shell-workspace" : "app-shell-public"} ${landing ? "app-shell-landing" : ""}`}>
+      <a href="#main-content" className="skip-link">Skip to content</a>
+      <header className="app-header">
         <Link href="/" className="flex flex-none items-center gap-2 whitespace-nowrap font-bold tracking-tight">
-          <span className="yellow-grad grid h-9 w-9 place-items-center rounded-xl text-lg font-black text-onbrand shadow-glow">F</span>
-          <span className="text-lg font-extrabold">Fam<span className="text-brand">-Fi</span></span>
+          <span className="brand-symbol" aria-hidden="true">f.</span>
+          <span className="brand-wordmark">fam-fi<span>.</span></span>
         </Link>
-        <div className="flex min-w-0 items-center gap-2">
+        {landing && <nav className="landing-nav" aria-label="Main navigation"><a href="#how-it-works">How it works</a><Link href="/parent">For parents</Link><Link href="/teen">For teens</Link></nav>}
+        <div className="header-actions flex min-w-0 items-center gap-2"><ThemeToggle />
           <span className="hidden sm:inline"><Pill tone="slate">{cfg.networkLabel}</Pill></span>
           <span className="sm:hidden"><Pill tone="slate">Test</Pill></span>
           {signer && (
@@ -156,7 +166,7 @@ export function Shell({ children, famId, role }: { children: ReactNode; famId?: 
         </div>
       </header>
       <PasskeyPrompt />
-      {children}
+      {role || landing ? children : <main id="main-content" className="public-content">{children}</main>}
     </div>
   );
 }
@@ -165,9 +175,9 @@ export function Shell({ children, famId, role }: { children: ReactNode; famId?: 
 export function SignIn({ title, blurb }: { title: string; blurb: string }) {
   const { hasDynamic } = useWallet();
   return (
-    <Card className="mx-auto mt-6 max-w-md text-center shadow-glow">
-      <span className="yellow-grad mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl text-2xl font-black text-onbrand animate-float">F</span>
-      <h1 className="text-2xl font-extrabold">{title}</h1>
+    <Card className="sign-in-surface mx-auto mt-10 max-w-md">
+      <span className="brand-symbol mb-6">F</span>
+      <h1 className="font-display text-4xl font-normal">{title}</h1>
       <p className="mt-2 text-sm text-muted">{blurb}</p>
       <div className="mt-5">
         {hasDynamic ? (
@@ -192,7 +202,7 @@ function EmailLogin() {
       <div className="text-sm text-muted" role="status">
         <p className="font-semibold text-fg">Setting up your account…</p>
         <p className="mt-1">Creating your private wallet. This takes a few seconds and you only do it once.</p>
-        {auth.error && <p className="mt-2 text-bad">{auth.error}</p>}
+        {auth.error && <><p className="mt-2 text-bad">{auth.error}</p><Button variant="soft" busy={auth.busy} onClick={() => void auth.retryWalletSetup()}>Retry account setup</Button></>}
       </div>
     );
 
@@ -241,9 +251,9 @@ function PasskeyPrompt() {
   // If this Dynamic environment has passkeys switched off, don't keep offering them.
   if (!signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden || /not enabled/i.test(auth.error ?? "")) return null;
   return (
-    <div className="pop mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-brand/30 bg-brand/10 p-4 text-sm text-fg">
+    <div className="passkey-notice pop flex flex-wrap items-center justify-between gap-3 text-sm text-fg">
       <p className="min-w-0 flex-1">
-        <b className="text-brand">Next time, skip the email.</b> Turn on Face ID or fingerprint on this device.
+        <b className="text-brand">An easier way back in.</b> Use Face ID or fingerprint next time.
         {auth.error && <span className="mt-1 block text-bad">{auth.error}</span>}
       </p>
       <div className="flex gap-2">
@@ -286,7 +296,7 @@ export function Timeline({ rows }: { rows: TimelineRow[] | undefined }) {
   if (!rows) return <Empty>Loading…</Empty>;
   if (!rows.length) return <Empty>Nothing yet. Everything that happens shows up here, in plain words.</Empty>;
   const tone = (k: string) =>
-    k.startsWith("hold") || k === "held" ? "bg-warn" : k === "freeze" ? "bg-bad" : k === "level_up" || k === "goal_complete" ? "bg-brand shadow-[0_0_8px_#FFD60A]" : "bg-line";
+    k.startsWith("hold") || k === "held" ? "bg-warn" : k === "freeze" ? "bg-bad" : k === "level_up" || k === "goal_complete" ? "bg-brand" : "bg-line";
   return (
     <ol className="space-y-3">
       {rows.map((r) => {
@@ -329,7 +339,8 @@ export function GoalCard({
   const target = big(g.target), saved = big(g.saved), matched = big(g.matched);
   const tone = g.status === "COMPLETE" ? "mint" : g.status === "PROPOSED" ? "sun" : "slate";
   return (
-    <div className="rounded-2xl border border-line bg-card2/60 p-4">
+    <div className="visual-goal rounded-2xl border border-line bg-card2/60 p-4">
+      <GoalVisual goal={g}/>
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-semibold">{g.memo || "Goal"}</p>
@@ -341,11 +352,12 @@ export function GoalCard({
         <Progress value={saved + matched} max={target} />
         <div className="num mt-1.5 flex justify-between text-xs text-dim">
           <span>
-            {fmt(saved)} saved{matched > 0n ? ` + ${fmt(matched)} from gifts` : ""}
+            {fmt(saved)} saved{matched > 0n ? ` + ${fmt(matched)} family matching` : ""}
           </span>
           <span>of {fmt(target)}</span>
         </div>
       </div>
+      {g.status === "CLOSED" && <p className="mt-2 text-xs text-muted">Closed goal · amounts show its history, not spendable funds.</p>}
       {children && <div className="mt-3 flex flex-wrap gap-2">{children}</div>}
     </div>
   );
@@ -359,17 +371,29 @@ export function ConfirmDialog({
   onConfirm: () => void; onCancel: () => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef(onCancel), busyRef = useRef(busy);
+  cancelRef.current = onCancel; busyRef.current = busy;
   useEffect(() => {
     if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
     ref.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onCancel();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busyRef.current) cancelRef.current();
+      if (e.key !== "Tab") return;
+      const nodes = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]');
+      if (!nodes?.length) { e.preventDefault(); return; }
+      const first = nodes[0], last = nodes[nodes.length-1];
+      if (e.shiftKey && document.activeElement === first) {e.preventDefault();last.focus();}
+      else if (!e.shiftKey && document.activeElement === last) {e.preventDefault();first.focus();}
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, busy, onCancel]);
+    return () => { window.removeEventListener("keydown", onKey); if (previous?.isConnected) previous.focus(); };
+  }, [open]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center" onClick={() => !busy && onCancel()}>
-      <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} className="pop w-full max-w-md rounded-3xl border border-line bg-card p-5 shadow-glow">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center" onClick={() => !busy && onCancel()}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} className="pop w-full max-w-md rounded-3xl border border-line bg-card p-5 shadow-glow">
         <h2 className="text-lg font-extrabold">{title}</h2>
         <ul className="mt-3 space-y-2 text-sm text-muted">
           {lines.map((l, i) => (
@@ -390,13 +414,14 @@ export function ConfirmDialog({
 }
 
 /** A small "waiting for the indexer" / "last updated" strip, so confirmed chain facts and indexed summaries are never confused. */
-export function FreshNote({ fetchedAt, error, blockNumber }: { fetchedAt: number; error?: string | null; blockNumber?: number }) {
+export function FreshNote({ fetchedAt, error, blockNumber, freshness }: { fetchedAt: number; error?: string | null; blockNumber?: number; freshness?: { indexedBlock: number; chainHead: number; lagBlocks: number; error?: string | null } }) {
   if (error) return <p className="text-xs text-bad" role="status">Couldn&apos;t refresh this summary: {error}. What you see may be out of date; on-chain balances above are always live.</p>;
   if (!fetchedAt) return <p className="text-xs text-dim">Loading summary…</p>;
   return (
     <p className="text-xs text-dim">
       Summary from the Envio indexer, refreshed {timeAgo(Math.floor(fetchedAt / 1000))}
-      {blockNumber ? ` · latest counted action at block ${blockNumber}` : ""}. It trails the chain by a moment.
+      {blockNumber ? ` · latest counted action at block ${blockNumber}` : ""}.
+      {freshness ? ` Indexed through block ${freshness.indexedBlock}; chain head ${freshness.chainHead}; ${freshness.lagBlocks} blocks behind${freshness.error ? "; sync needs attention" : ""}.` : " Indexer freshness is unavailable; summaries may trail the chain."}
     </p>
   );
 }

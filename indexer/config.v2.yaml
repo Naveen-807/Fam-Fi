@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: famfi-v2-staged
+handlers: v2
+field_selection:
+  transaction_fields:
+    - hash
+contracts:
+  - name: FamFi
+    abi_file_path: ../abi/FamFiV2.json
+    handler: v2/EventHandlers.ts
+    events:
+      - event: FamIdRegistered
+      - event: FamilyCreated
+      - event: TeenAdded
+      - event: Deposited
+      - event: StreamFunded
+      - event: Paid
+      - event: PaymentHeld
+      - event: PendingResolved
+      - event: LimitsSet
+      - event: Frozen
+      - event: Unfrozen
+      - event: RoundUpSet
+      - event: GoalProposed
+      - event: GoalDeclined
+      - event: GoalApproved
+      - event: GiftLocked
+      - event: GoalSaved
+      - event: GiftReleased
+      - event: GoalCompleted
+      - event: LevelUp
+      - event: GiftReclaimed
+      - event: GoalClosed
+      - event: GoalSpent
+      - event: SplitCreated
+      - event: SplitSharePaid
+      - event: RequestCreated
+      - event: RequestPaid
+      - event: MissionCreated
+      - event: MissionSubmitted
+      - event: MissionRejected
+      - event: MissionApproved
+      - event: MissionCancelled
+      - event: MissionExpired
+      - event: FundCreated
+      - event: FundContributed
+      - event: FundReleased
+chains:
+  - id: 10143 # Monad testnet
+    start_block: 0 # isolated tests only; set to verified V2 deploy block before activation
+    contracts:
+      - name: FamFi
+        address: "${ENVIO_FAMFI_V2_ADDRESS:-0x0000000000000000000000000000000000000001}"

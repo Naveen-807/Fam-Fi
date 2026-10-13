@@ -3,11 +3,8 @@ import { cfg } from "./config";
 import { fam, fwd, provider, friendlyError } from "./chain";
 import type { Terms } from "./terms";
 
-export type Signer = {
-  address: string;
-  kind: "dynamic";
-  signTypedData: (domain: any, types: any, message: any, primaryType: string) => Promise<string>;
-};
+import type { Signer } from "./signer";
+export type { Signer } from "./signer";
 
 export type TxResult = {
   hash: string;
@@ -40,7 +37,7 @@ const FORWARD_TYPES = {
  */
 export async function relay(signer: Signer, fn: string, args: unknown[]): Promise<TxResult> {
   const t0 = performance.now();
-  const data = fam.interface.encodeFunctionData(fn, args);
+  const data = fn === "declineGoal" ? new ethers.Interface(["function declineGoal(uint256 goalId)"]).encodeFunctionData(fn, args) : fam.interface.encodeFunctionData(fn, args);
 
   // Simulate exactly as the forwarder will (msg.sender = forwarder, signer appended) to get a readable error and a gas figure.
   let est: bigint;
@@ -90,6 +87,16 @@ export async function relay(signer: Signer, fn: string, args: unknown[]): Promis
     }
   }
   const heldEv = events.find((e) => e.name === "PaymentHeld");
+  if (typeof window !== "undefined") for (const event of events.filter(e => e.name === "GoalSaved")) {
+    const goalId = String(event.args.goalId);
+    const key = `famfi-contribution:${cfg.chainId}:${cfg.famfi}:${hash}:${goalId}`;
+    try {
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        window.dispatchEvent(new CustomEvent("famfi-contribution", { detail: { goalId, hash } }));
+      }
+    } catch { /* Disable celebration if deduplication storage is unavailable. */ }
+  }
   const held = heldEv ? { id: heldEv.args.id as bigint, kind: Number(heldEv.args.kind), releaseAt: Number(heldEv.args.releaseAt) } : undefined;
 
   let finalMs: number | undefined;

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, ConfirmDialog, Empty, Field, FreshNote, Input, Pill, Progress } from "@/components/ui";
+import { useSearchParams } from "next/navigation";
+import { ActionError, Button, Card, ConfirmDialog, Empty, Field, FreshNote, Input, Pill, Progress } from "@/components/ui";
 import { ChainFund, readFund } from "@/lib/chain";
 import { big, byteLen, cap, dateText, dayString, endOfDay, fmt, parseAmount } from "@/lib/format";
 import { useAct } from "@/lib/hooks";
@@ -11,7 +12,7 @@ import { useWallet } from "@/lib/wallet";
 
 /** Said wherever FutureFund money appears, so nobody mistakes locked ledger money for an investment. */
 export const CUSTODY =
-  "Held inside Fam-Fi's contract on the Monad test network. It is tracked and locked, not invested: it earns nothing and nothing about it can go up or down. Test dollars have no real value.";
+  "Locked savings · No yield. Held in Fam-Fi until released to your teen. Test USDC has no real value.";
 
 const Src = ({ tx }: { tx: string }) => {
   const l = explorerTx(tx);
@@ -63,11 +64,12 @@ export function ParentFutureFund({
   onChanged: Changed; fetchedAt: number; error: string | null;
 }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const [teen, setTeen] = useState("");
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
-  const [target, setTarget] = useState("");
+  const fundingQuery = useSearchParams();
+  const [target, setTarget] = useState(fundingQuery.get("allocate") === "future" ? fundingQuery.get("amount") ?? "" : "");
   const [date, setDate] = useState(dayString(365));
   const [confirm, setConfirm] = useState(false);
   const t = teens.find((x) => x.id === teen) ?? teens[0];
@@ -78,7 +80,7 @@ export function ParentFutureFund({
 
   return (
     <Card title="FutureFund" right={<Pill tone="slate">not invested</Pill>}>
-      <p className="text-sm text-muted">A long-term pot for your teen&apos;s future. You decide the target and the date; your teen can see everything that happens to it.</p>
+      <ActionError error={actionError}/><p className="text-sm text-muted">A long-term pot for your teen&apos;s future. You decide the target and the date; your teen can see everything that happens to it.</p>
       <p className="mt-2 rounded-xl bg-card2 px-3 py-2 text-xs text-dim">{CUSTODY}</p>
 
       {teens.length > 0 && (
@@ -104,12 +106,14 @@ export function ParentFutureFund({
         open={confirm} title="Open this FutureFund?" confirmLabel="Open it" busy={busy === "fcreate"}
         onCancel={() => setConfirm(false)}
         onConfirm={async () => {
-          await run("fcreate", async () => {
+          const ok = await run("fcreate", async () => {
             const tx = await relay(signer!, "createFutureFund", [t.id, tgt!, BigInt(horizon!), name.trim(), purpose.trim()]);
-            await onChanged((b) => b.data.funds.some((f) => f.name === name.trim()));
+            const fundId = tx.events.find((e) => e.name === "FundCreated")?.args.fundId;
+            await onChanged((b) => b.data.funds.some((f) => f.id === String(fundId)));
             return tx;
           }, "FutureFund opened. Add money whenever you like.");
-          setConfirm(false); setName(""); setPurpose(""); setTarget("");
+          setConfirm(false);
+          if (ok) { setName(""); setPurpose(""); setTarget(""); }
         }}
         lines={["Opening it moves no money.", `Target ${tgt ? fmt(tgt) : ""} for ${t ? cap(t.famId) : ""}, from ${horizon ? dateText(horizon) : ""}.`, "Money you add later is locked here, not invested, and ends up with your teen."]}
       />
@@ -119,16 +123,17 @@ export function ParentFutureFund({
           <ParentFund key={f.id} row={f} entries={entries.filter((e) => e.fundId === f.id)} reserved={missions.filter((m) => m.teenFamId === f.teenFamId && ["ACTIVE", "SUBMITTED", "REJECTED"].includes(m.status)).reduce((a, m) => a + big(m.reward), 0n)} balance={balance} onChanged={onChanged} />
         ))}
       </div>
-      <div className="mt-3"><FreshNote fetchedAt={fetchedAt} error={error} /></div>
+      {error && <p className="mt-3 text-xs text-bad" role="status">Future savings history is unavailable. Please retry family access.</p>}
     </Card>
   );
 }
 
 function ParentFund({ row, entries, reserved, balance, onChanged }: { row: FundRow; entries: FundEntryRow[]; reserved: bigint; balance: bigint; onChanged: Changed }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const { f, refresh } = useChainFund(row.id);
-  const [amount, setAmount] = useState("");
+  const fundingQuery = useSearchParams();
+  const [amount, setAmount] = useState(fundingQuery.get("allocate") === "future" ? fundingQuery.get("amount") ?? "" : "");
   const [ask, setAsk] = useState<null | "add" | "release">(null);
   const funded = f?.funded ?? big(row.funded);
   const target = f?.target ?? big(row.target);
@@ -137,7 +142,7 @@ function ParentFund({ row, entries, reserved, balance, onChanged }: { row: FundR
   const bad = amt === null ? "Enter an amount." : amt > balance ? "That's more than your balance." : null;
 
   return (
-    <div className="rounded-2xl border border-line bg-card2/60 p-4">
+    <div className="rounded-2xl border border-line bg-card2/60 p-4"><ActionError error={actionError}/>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-semibold">{row.name} <span className="text-sm font-normal text-dim">for {cap(row.teenFamId)}</span></p>
@@ -159,7 +164,7 @@ function ParentFund({ row, entries, reserved, balance, onChanged }: { row: FundR
           <Button variant="ghost" disabled={funded === 0n} onClick={() => setAsk("release")}>Release to {cap(row.teenFamId)} now</Button>
         </div>
       )}
-      <div className="mt-4"><MoneyStory entries={entries} status={storyStatus(f, row)} /></div>
+      <details className="mt-4"><summary>Details & money story</summary><MoneyStory entries={entries} status={storyStatus(f, row)} /></details>
 
       <ConfirmDialog
         open={ask === "add"} title="Add to this FutureFund?" confirmLabel={`Add ${amt ? fmt(amt) : ""}`} busy={busy === "fadd" + row.id}
@@ -208,21 +213,14 @@ export function TeenFutureFund({ bundle, onChanged, fetchedAt, error }: { bundle
           {funds.map((f) => <TeenFund key={f.id} row={f} entries={bundle.data.fundEntries.filter((e) => e.fundId === f.id)} onChanged={onChanged} />)}
         </div>
       )}
-      <div className="mt-4 space-y-2">
-        <div className="rounded-xl bg-card2 px-3 py-3 text-sm text-muted">
-          <p className="font-semibold text-fg">Investing: not turned on</p>
-          <p className="mt-1">Fam-Fi hasn&apos;t connected FutureFund to any investment, so there are no returns, prices or yields to show, and none are made up. If investing is ever added, your family will see the real value and when it was last checked. Investments can lose value.</p>
-        </div>
-        <p className="text-xs text-dim">{CUSTODY}</p>
-        <FreshNote fetchedAt={fetchedAt} error={error} />
-      </div>
+      <p className="mt-4 text-xs text-muted">{CUSTODY}</p>
     </Card>
   );
 }
 
 function TeenFund({ row, entries, onChanged }: { row: FundRow; entries: FundEntryRow[]; onChanged: Changed }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const { f, refresh } = useChainFund(row.id);
   const [ask, setAsk] = useState(false);
   const funded = f?.funded ?? big(row.funded);
@@ -230,7 +228,7 @@ function TeenFund({ row, entries, onChanged }: { row: FundRow; entries: FundEntr
   const open = (f?.status ?? row.status) === "OPEN";
   const reached = Math.floor(Date.now() / 1000) >= row.horizon;
   return (
-    <div className="rounded-2xl border border-line bg-card2/60 p-4">
+    <div className="rounded-2xl border border-line bg-card2/60 p-4"><ActionError error={actionError}/>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-semibold">{row.name}</p>
@@ -247,7 +245,7 @@ function TeenFund({ row, entries, onChanged }: { row: FundRow; entries: FundEntr
           : "This FutureFund has been paid out to your balance."}
       </p>
       {open && reached && funded > 0n && <div className="mt-3"><Button onClick={() => setAsk(true)}>Claim {fmt(funded)}</Button></div>}
-      <div className="mt-4"><MoneyStory entries={entries} status={storyStatus(f, row)} /></div>
+      <details className="mt-4"><summary>Details & money story</summary><MoneyStory entries={entries} status={storyStatus(f, row)} /></details>
       <ConfirmDialog
         open={ask} title="Claim your FutureFund?" confirmLabel={`Claim ${fmt(funded)}`} busy={busy === "fclaim" + row.id}
         onCancel={() => setAsk(false)}

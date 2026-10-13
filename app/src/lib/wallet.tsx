@@ -1,5 +1,6 @@
 "use client";
-import { createContext, ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { readSessions } from "./read-session";
 import dynamic from "next/dynamic";
 import { cfg } from "./config";
 import type { Bridge, DynamicAuth } from "./bridge";
@@ -29,7 +30,18 @@ const DynamicShell = cfg.dynamicEnvId
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [bridge, setBridge] = useState<Bridge>({ signer: null, logout() {}, ready: !cfg.dynamicEnvId });
 
-  const logout = useCallback(() => bridge.logout(), [bridge]);
+  const lastAddress = useRef<string | undefined>(undefined);
+  const reportBridge = useCallback((next: Bridge) => {
+    const address = next.signer?.address.toLowerCase();
+    if (address !== lastAddress.current) readSessions.clear();
+    lastAddress.current = address;
+    setBridge(next);
+  }, []);
+  const logout = useCallback(() => {
+    readSessions.clear();
+    setBridge((current) => ({ ...current, signer: null }));
+    bridge.logout();
+  }, [bridge]);
 
   const value: Ctx = useMemo(
     () => ({
@@ -44,5 +56,5 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const inner = <WalletCtx.Provider value={value}>{children}</WalletCtx.Provider>;
   if (!DynamicShell) return inner;
-  return <DynamicShell onBridge={setBridge}>{inner}</DynamicShell>;
+  return <DynamicShell onBridge={reportBridge}>{inner}</DynamicShell>;
 }

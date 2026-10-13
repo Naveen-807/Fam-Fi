@@ -10,3 +10,39 @@ e2e/shots/
 *.tsbuildinfo
 .next-dyn/
 .wallets.json
+
+# Private credentials and local configuration backups
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+*.secret
+.env*.bak*
+*wallets*.json
+credentials*.json
+secrets*.json
+
+# Local reports, screenshots, recordings, and machine metadata
+.DS_Store
+**/.DS_Store
+e2e/*.png
+e2e/*.jpg
+e2e/*.webp
+test-results/
+playwright-report/
+coverage/
+*.mp4
+*.mov
+*.swp
+*.swo
+*.orig
+*.rej
+deployments/*.previous.json
+
+# Generated contract/indexer files
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+indexer/generated/
+indexer/.envio/

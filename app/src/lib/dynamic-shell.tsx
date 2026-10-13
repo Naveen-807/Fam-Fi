@@ -1,6 +1,6 @@
 "use client";
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createDynamicClient, getActiveNetworkData, switchActiveNetwork } from "@dynamic-labs-sdk/client";
+import { createDynamicClient, getActiveNetworkData, switchActiveNetwork, refreshAuth } from "@dynamic-labs-sdk/client";
 import { createWaasWalletAccounts, getChainsMissingWaasWalletAccounts } from "@dynamic-labs-sdk/client/waas";
 import { addEvmExtension, isEvmWalletAccount } from "@dynamic-labs-sdk/evm";
 import { createWalletClientForWalletAccount } from "@dynamic-labs-sdk/evm/viem";
@@ -20,6 +20,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cfg } from "./config";
 import type { Bridge } from "./bridge";
 import type { Signer } from "./relay";
+import { withWalletAuthRefresh } from "./wallet-auth";
 
 /**
  * Real sign-in with Dynamic's headless SDK: email one-time code -> an embedded wallet is created for that
@@ -57,9 +58,9 @@ addEvmExtension();
 const queryClient = new QueryClient();
 
 const PASSKEY_FLAG = "famfi-passkey-on";
-const readFlag = () => {
+const readFlag = (owner: string) => {
   try {
-    return localStorage.getItem(PASSKEY_FLAG) === "1";
+    return !!owner && localStorage.getItem(`${PASSKEY_FLAG}:${owner}`) === "1";
   } catch {
     return false;
   }
@@ -89,6 +90,8 @@ async function ensureOurNetwork(walletAccount: any) {
   const { networkData } = await getActiveNetworkData({ walletAccount });
   if (String(networkData?.networkId) === OUR_NETWORK.networkId) return;
   await switchActiveNetwork({ walletAccount, networkId: OUR_NETWORK.networkId });
+  const switched = await getActiveNetworkData({ walletAccount });
+  if (String(switched.networkData?.networkId) !== OUR_NETWORK.networkId) throw new Error("Please switch your wallet to Monad testnet and try again.");
 }
 
 function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
@@ -105,7 +108,9 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [passkeyOn, setPasskeyOn] = useState(readFlag);
+  const [passkeyOn, setPasskeyOn] = useState(false);
+  const passkeyOwner = user?.id ?? "";
+  useEffect(() => setPasskeyOn(readFlag(passkeyOwner)), [passkeyOwner]);
 
   // A wallet is not created by sign-in itself. Create one the moment a user appears (docs: do it unconditionally).
   const creating = useRef(false);
@@ -130,6 +135,8 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
 
   const evm = accounts.find((a) => isEvmWalletAccount(a));
   const address = evm?.address;
+  const activeAddress = useRef<string | undefined>(undefined);
+  activeAddress.current = user ? address?.toLowerCase() : undefined;
 
   // A returning user whose wallet was never created (e.g. the tab closed mid-setup) gets it created now.
   useEffect(() => {
@@ -142,30 +149,43 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
   }, [evm]);
 
   const signer: Signer | null = useMemo(() => {
-    if (!evm || !address) return null;
+    if (!user || !evm || !address) return null;
+    const assertActive = () => {
+      if (activeAddress.current !== address.toLowerCase()) throw new Error("Your account changed. Please sign in again.");
+    };
     return {
       address,
       kind: "dynamic",
       signTypedData: async (domain, types, message, primaryType) => {
-        let payloadForDebug: unknown;
         try {
+          assertActive();
           await ensureOurNetwork(evm);
+          assertActive();
           const walletClient: any = await createWalletClientForWalletAccount({ walletAccount: evm as any });
           // Dynamic's signing API requires domain.chainId to be a plain NUMBER. The SDK stringifies BigInts,
           // so a BigInt chain id would arrive as "10143" and be rejected with a bare HTTP 400.
           const fixedDomain = domain && domain.chainId !== undefined ? { ...domain, chainId: Number(domain.chainId) } : domain;
-          payloadForDebug = { primaryType, domain: fixedDomain, types, message };
-          return await walletClient.signTypedData({ domain: fixedDomain, types, primaryType, message });
+          return await withWalletAuthRefresh(async () => {
+            assertActive();
+            return await walletClient.signTypedData({ domain: fixedDomain, types, primaryType, message });
+          }, () => refreshAuth(dynamicClient));
         } catch (e) {
           const d = detailOf(e);
           // eslint-disable-next-line no-console
-          console.error("Dynamic signing failed", { status: (e as any)?.response?.status, body: (e as any)?.response?.data, error: e, payload: JSON.parse(JSON.stringify(payloadForDebug ?? null, (_k, v) => (typeof v === "bigint" ? v.toString() : v))) });
+          console.error("Dynamic signing failed", { status: (e as any)?.response?.status, primaryType });
           throw new Error(d ? `Your wallet couldn't sign this: ${d}` : (e as any)?.message || "Your wallet couldn't sign this.");
         }
       },
+      sendTransaction: async (request) => {
+        assertActive();
+        await ensureOurNetwork(evm);
+        assertActive();
+        const walletClient: any = await createWalletClientForWalletAccount({ walletAccount: evm as any });
+        return await walletClient.sendTransaction({ ...request, chain: walletClient.chain });
+      },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address]);
+  }, [evm, address, user]);
 
   const wrap = useCallback(async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -208,14 +228,15 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
           await passkeyReg.mutateAsync(undefined);
           setPasskeyOn(true);
           try {
-            localStorage.setItem(PASSKEY_FLAG, "1");
+            if (passkeyOwner) localStorage.setItem(`${PASSKEY_FLAG}:${passkeyOwner}`, "1");
           } catch {
             /* convenience only */
           }
         }),
+      retryWalletSetup: () => wrap(makeWallet),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, otp, email, busy, error, passkeyOn, wrap, init],
+    [user, otp, email, busy, error, passkeyOn, passkeyOwner, wrap, init, makeWallet],
   );
 
   useEffect(() => {

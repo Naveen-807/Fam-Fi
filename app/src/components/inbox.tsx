@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Button, Card, ConfirmDialog, Empty, Input, Pill } from "@/components/ui";
+import { ActionError, Button, Card, ConfirmDialog, Empty, Input, Pill } from "@/components/ui";
 import { fam, readMission } from "@/lib/chain";
 import { big, byteLen, cap, dateText, fmt } from "@/lib/format";
 import { useAct, useNow } from "@/lib/hooks";
@@ -8,6 +8,8 @@ import { explorerTx, relay } from "@/lib/relay";
 import type { Bundle, GoalRow, HoldRow, MissionRow, RequestRow } from "@/lib/private";
 import type { Changed } from "@/components/missions";
 import { useWallet } from "@/lib/wallet";
+import { useCapabilities } from "./flow-status";
+import { MissionReview } from "./mission-review";
 
 const Src = ({ tx }: { tx?: string }) => {
   if (!tx) return null;
@@ -16,7 +18,7 @@ const Src = ({ tx }: { tx?: string }) => {
 };
 
 /** One review experience for everything that needs a parent: submitted missions, held payments, proposed goals, money requests. */
-export function ApprovalInbox({ bundle, onChanged }: { bundle: Bundle | null; onChanged: Changed }) {
+export function ApprovalInbox({ bundle, onChanged, error }: { bundle: Bundle | null; onChanged: Changed; error?: string | null }) {
   const missions = (bundle?.data.missions ?? []).filter((m) => m.status === "SUBMITTED");
   const holds = (bundle?.data.holds ?? []).filter((h) => h.status === "OPEN");
   const goals = (bundle?.data.goals ?? []).filter((g) => g.status === "PROPOSED");
@@ -24,9 +26,10 @@ export function ApprovalInbox({ bundle, onChanged }: { bundle: Bundle | null; on
   const total = missions.length + holds.length + goals.length + requests.length;
 
   return (
-    <Card title="Approval inbox" right={!bundle ? undefined : total > 0 ? <Pill tone="sun">{total} waiting</Pill> : <Pill tone="mint">all clear</Pill>}>
-      {!bundle ? <Empty>Loading…</Empty> : total === 0 ? (
-        <Empty>Nothing is waiting for you. Submitted missions, held payments, new goals and money requests all land here.</Empty>
+    <Card title="Needs your attention" right={!bundle ? undefined : total > 0 ? <Pill tone="sun">{total} waiting</Pill> : <Pill tone="slate">No items loaded</Pill>}>
+      {(bundle?.liveGoals === "unavailable" || bundle?.liveApprovals === "unavailable") && <p className="mb-3 text-sm text-muted" role="status">Current approvals could not all be checked. This inbox may be incomplete; try refreshing.</p>}
+      {!bundle ? <Empty>{error ? "Your inbox will appear when the family summaries reconnect." : "Checking for things that need your attention…"}</Empty> : total === 0 ? (
+        <Empty>No approvals in the loaded data. New goals are checked against the network; other requests appear as the family history catches up.</Empty>
       ) : (
         <div className="space-y-3">
           {missions.map((m) => <MissionItem key={"m" + m.id} m={m} onChanged={onChanged} />)}
@@ -48,20 +51,24 @@ function Item({ tone, label, title, what, why, status, actions, children }: {
         <p className="font-semibold">{title}</p>
         <Pill tone={tone}>{label}</Pill>
       </div>
-      <dl className="mt-2 space-y-1 text-sm">
+      <p className="mt-2 text-sm text-muted">{what}</p>
+      <p className="mt-1 text-xs text-muted">{status} · {actions}</p>
+      <details className="mt-2 text-sm"><summary>Details</summary><dl className="mt-2 space-y-1 text-sm">
         <div><dt className="inline font-semibold text-fg">What happened: </dt><dd className="inline text-muted">{what}</dd></div>
         <div><dt className="inline font-semibold text-fg">Why you&apos;re asked: </dt><dd className="inline text-muted">{why}</dd></div>
         <div><dt className="inline font-semibold text-fg">Status: </dt><dd className="inline text-muted">{status}</dd></div>
         <div><dt className="inline font-semibold text-fg">Who can act: </dt><dd className="inline text-muted">only you, the parent. {actions}</dd></div>
-      </dl>
+      </dl></details>
       <div className="mt-3 flex flex-wrap gap-2">{children}</div>
     </div>
   );
 }
 
 function MissionItem({ m, onChanged }: { m: MissionRow; onChanged: Changed }) {
+  const capabilities = useCapabilities();
+  const reviewEnded = capabilities.missionReviewTimeout === true && Date.now()/1000 >= Math.max(m.submittedAt,m.deadline)+7*86400;
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const [ask, setAsk] = useState<null | "approve" | "reject">(null);
   const [note, setNote] = useState("");
   const reward = fmt(big(m.reward));
@@ -77,9 +84,10 @@ function MissionItem({ m, onChanged }: { m: MissionRow; onChanged: Changed }) {
       status="waiting for review"
       actions={`Approve pays ${reward} once. Send back keeps it set aside so ${cap(m.teenFamId)} can try again before the deadline.`}
     >
-      <Button onClick={() => setAsk("approve")}>Approve and pay {reward}</Button>
-      <Button variant="ghost" onClick={() => setAsk("reject")}>Send back…</Button>
+      <ActionError error={actionError}/><Button disabled={reviewEnded} onClick={() => setAsk("approve")}>Approve and pay {reward}</Button>
+      <ActionError error={actionError}/><Button disabled={reviewEnded} variant="ghost" onClick={() => setAsk("reject")}>Send back…</Button>
       <span className="self-center text-xs text-dim"><Src tx={m.lastTxHash} /></span>
+      <MissionReview id={m.id} onChanged={onChanged}/>
 
       <ConfirmDialog
         open={ask === "approve"} title="Pay this reward?" confirmLabel={`Pay ${reward}`} busy={busy === "ma" + m.id}
@@ -124,7 +132,7 @@ function MissionItem({ m, onChanged }: { m: MissionRow; onChanged: Changed }) {
 
 function HoldItem({ h, onChanged }: { h: HoldRow; onChanged: Changed }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const now = useNow(1000) / 1000;
   const over = h.kind === "OVER_LIMIT";
   const left = Math.max(0, Number(h.releaseAt) - now);
@@ -147,16 +155,17 @@ function HoldItem({ h, onChanged }: { h: HoldRow; onChanged: Changed }) {
       status={over ? "waiting for you" : left > 0 ? `short hold, ${Math.ceil(left)}s left` : "hold is over; you can still reject it unless your teen has released it"}
       actions="Approve sends the money. Reject returns it to your teen."
     >
-      <Button busy={busy === "a" + h.id} onClick={() => decide("a")}>Approve {amt}</Button>
-      <Button variant="danger" busy={busy === "r" + h.id} onClick={() => decide("r")}>Reject</Button>
+      <ActionError error={actionError}/><Button busy={busy === "a" + h.id} onClick={() => decide("a")}>Approve {amt}</Button>
+      <ActionError error={actionError}/><Button variant="danger" busy={busy === "r" + h.id} onClick={() => decide("r")}>Reject</Button>
       <span className="self-center text-xs text-dim"><Src tx={h.txHash} /></span>
     </Item>
   );
 }
 
 function GoalItem({ g, onChanged }: { g: GoalRow; onChanged: Changed }) {
+  const capabilities = useCapabilities();
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const decide = (open: boolean) =>
     run("g" + open + g.id, async () => {
       if (Number((await fam.goals(BigInt(g.id))).status) !== 1) throw new Error("That goal was already decided. Refreshing.");
@@ -172,15 +181,21 @@ function GoalItem({ g, onChanged }: { g: GoalRow; onChanged: Changed }) {
       status="waiting for your OK"
       actions="Approving moves no money. Opening it for gifts lets relatives match what your teen saves. There's no decline button, so a goal you don't want simply stays unapproved."
     >
-      <Button busy={busy === "gtrue" + g.id} onClick={() => decide(true)}>Approve and open for gifts</Button>
-      <Button variant="ghost" busy={busy === "gfalse" + g.id} onClick={() => decide(false)}>Approve (no gifts)</Button>
+      <ActionError error={actionError}/><Button busy={busy === "gtrue" + g.id} onClick={() => decide(true)}>Approve and open for gifts</Button>
+      <ActionError error={actionError}/><Button variant="ghost" busy={busy === "gfalse" + g.id} onClick={() => decide(false)}>Approve (no gifts)</Button>
+      {capabilities.goalDecline === true ? <Button variant="ghost" busy={busy === "decline"} onClick={() => run("decline", async () => {
+        if (Number((await fam.goals(BigInt(g.id))).status) !== 1) throw new Error("That proposal was already decided.");
+        const tx = await relay(signer!, "declineGoal", [BigInt(g.id)]);
+        await onChanged(); return tx;
+      }, "Goal declined. No money moved.")}>Decline goal</Button> : <span className="text-xs text-muted">This deployment has no decline action; unapproved goals stay pending.</span>}
+      {g.namePending && <span className="self-center text-xs text-dim">Confirmed on the network. The goal name is still syncing.</span>}
     </Item>
   );
 }
 
 function RequestItem({ r, onChanged }: { r: RequestRow; onChanged: Changed }) {
   const { signer } = useWallet();
-  const { busy, run } = useAct();
+  const { busy, run, error: actionError } = useAct();
   const [ask, setAsk] = useState(false);
   const amt = fmt(big(r.amount));
   return (
@@ -191,7 +206,7 @@ function RequestItem({ r, onChanged }: { r: RequestRow; onChanged: Changed }) {
       status="open"
       actions={`Pay sends ${amt} from your balance. To say no, just don't pay.`}
     >
-      <Button onClick={() => setAsk(true)}>Pay {amt}</Button>
+      <ActionError error={actionError}/><Button onClick={() => setAsk(true)}>Pay {amt}</Button>
       <ConfirmDialog
         open={ask} title="Pay this request?" confirmLabel={`Pay ${amt}`} busy={busy === "pr" + r.id}
         onCancel={() => setAsk(false)}

@@ -13,8 +13,14 @@ async function main() {
 
   const fwd = await (await ethers.getContractFactory("FamFiForwarder")).deploy();
   await fwd.waitForDeployment();
+  const fwdReceipt = await fwd.deploymentTransaction()!.wait();
   const fam = await (await ethers.getContractFactory("FamFi")).deploy(usdc, await fwd.getAddress());
   await fam.waitForDeployment();
+  const famReceipt = await fam.deploymentTransaction()!.wait();
+  if (!famReceipt || famReceipt.status !== 1 || !fwdReceipt || fwdReceipt.status !== 1) throw new Error("Deployment receipt failed");
+  if (await fam.token() !== ethers.getAddress(usdc)) throw new Error("Wrong token on deployed contract");
+  if (!(await fam.isTrustedForwarder(await fwd.getAddress()))) throw new Error("Wrong trusted forwarder");
+  await Promise.all([fam.missionCount(), fam.fundCount(), fam.goalCount(), fam.familyCount()]);
 
   const out = {
     network: network.name,
@@ -22,7 +28,12 @@ async function main() {
     usdc,
     forwarder: await fwd.getAddress(),
     famFi: await fam.getAddress(),
-    deployBlock: await ethers.provider.getBlockNumber(),
+    deployBlock: famReceipt.blockNumber,
+    transactions: { famFi: famReceipt.hash, forwarder: fwdReceipt.hash },
+    runtimeCodeHashes: {
+      famFi: ethers.keccak256(await ethers.provider.getCode(await fam.getAddress())),
+      forwarder: ethers.keccak256(await ethers.provider.getCode(await fwd.getAddress())),
+    },
     deployer: deployer.address,
     deployedAt: new Date().toISOString(),
   };

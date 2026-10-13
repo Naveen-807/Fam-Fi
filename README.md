@@ -90,7 +90,7 @@ node scripts/deploy-testnet.mjs --dry-run --dynamic-env <your Dynamic environmen
 
 Use the three scripts above. They do the following for you:
 1. `new-wallets.mjs` saves three throwaway keys to `.wallets.json` (git-ignored) and prints only addresses.
-2. `deploy-testnet.mjs` refuses to continue until each wallet has MON and the treasury has USDC (it tells you exactly which), deploys with Circle's USDC address (`0x534b…43A3`), writes `relayer/.env`, `app/.env.local`, `indexer/.env`, and sets the indexer's start block.
+2. `deploy-testnet.mjs` checks that deployment/service wallets have MON, validates the USDC token, and warns if the treasury is empty. It backs up the previous configuration, deploys with Circle's USDC address (`0x534b…43A3`), writes `relayer/.env`, `app/.env.local`, `indexer/.env`, and sets the indexer's start block. Treasury spending approval is disabled by default; the faucet requires funding and explicit token-approval setup.
 3. `start-testnet.mjs` starts the relayer, indexer and app together.
 
 Test USDC: https://faucet.circle.com (choose USDC, then Monad Testnet; no account; 20 USDC per request, one request per address every 2 hours at the time of writing).
@@ -111,13 +111,13 @@ For the hosted Envio indexer instead of the bundled one, set `ENVIO_FAMFI_ADDRES
 
 Verified here, on a local chain: everything in the table above.
 
-**Not yet done for the missions release:**
-* No new deployment has been made. The Monad testnet contract from before is the old version (no missions, no FutureFund) until you run the deploy script.
-* No browser walkthrough of the new screens exists, because real Dynamic email login can't be automated here. The new screens are covered by typecheck, a production build, the contract/indexer/gateway tests, and a script that drives the real relayer + indexer on a local chain. Please click through them once with your Dynamic sandbox account.
+**Release verification and outstanding checks:**
+* Updated contracts were deployed on 13 October 2026: FamFi `0x9B4753f628b1D4445C9C29EC8608E3ec78D2FbE9`, forwarder `0xbA73C0EA819e6aB3C65Dc5b867205Bf873dBcF5b`, starting at block 70640050. Runtime bytecode matches the compiled source, and missions/FutureFund getters respond. See `deployments/monadTestnet.json`. Local services target the new deployment; families must register and use new invites. The treasury is funded and has a bounded token allowance. At the 13 October live check it held 50 test USDC; balance changes as demo accounts receive funds.
+* No complete two-account Dynamic walkthrough of the redesigned screens is verified. Mailbox login and user signing require participation. The new screens are covered by typecheck, a production build, the contract/indexer/gateway tests, and a script that drives the real relayer + indexer on a local chain. Please click through them once with your Dynamic sandbox account.
 * The weekly boundaries and "indexer is behind" notes are only exercised against the local dev indexer; the hosted Envio deployment is still unverified.
 
 **Not yet verified on Monad testnet**, so treat as open until tested:
-* Dynamic email + passkey sign-in and signing typed data (`app/src/lib/dynamic-shell.tsx`). It uses Dynamic's recommended headless SDK (`@dynamic-labs-sdk/*`), is written from Dynamic's docs, type-checks against the installed package, and a browser test (`e2e/dynamic-ui.mjs`) proves the form renders, validates and fails in plain words. A real login has not been run because it needs a real environment ID.
+* Dynamic email + passkey sign-in and signing typed data (`app/src/lib/dynamic-shell.tsx`). It uses Dynamic's recommended headless SDK (`@dynamic-labs-sdk/*`), is written from Dynamic's docs, type-checks against the installed package, and a browser test (`e2e/dynamic-ui.mjs`) proves the form renders, validates and fails in plain words. The public environment ID is configured. A complete agent-observed parent/teen Dynamic signing walkthrough remains outstanding.
 * Envio hosted deployment and live GraphQL subscriptions (the handlers and queries are tested through Envio's test indexer and the dev server; the hosted service and the WebSocket path are not).
 * Circle's testnet USDC faucet limits for the treasury.
 
