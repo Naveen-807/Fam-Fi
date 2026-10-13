@@ -4,6 +4,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { cfg } from "@/lib/config";
 import { explorerTx, TxResult } from "@/lib/relay";
 import { useWallet } from "@/lib/wallet";
+import { useRef } from "react";
 import { fmt, timeAgo, cap, big } from "@/lib/format";
 
 // ───────────── toasts ─────────────
@@ -136,7 +137,7 @@ export function Empty({ children }: { children: ReactNode }) {
 
 // ───────────── layout ─────────────
 export function Shell({ children, famId, role }: { children: ReactNode; famId?: string; role?: string }) {
-  const { signer, logout, isDemo } = useWallet();
+  const { signer, logout } = useWallet();
   return (
     <div className="mx-auto min-h-screen max-w-6xl px-5 pb-24 pt-6 lg:px-10">
       <header className="mb-6 flex items-center justify-between gap-2">
@@ -145,8 +146,8 @@ export function Shell({ children, famId, role }: { children: ReactNode; famId?: 
           <span className="text-lg font-extrabold">Fam<span className="text-brand">-Fi</span></span>
         </Link>
         <div className="flex min-w-0 items-center gap-2">
-          <span className="hidden sm:inline"><Pill tone={isDemo ? "sun" : "slate"}>{isDemo ? "Judge/demo wallet" : cfg.networkLabel}</Pill></span>
-          <span className="sm:hidden"><Pill tone={isDemo ? "sun" : "slate"}>{isDemo ? "Demo" : "Test"}</Pill></span>
+          <span className="hidden sm:inline"><Pill tone="slate">{cfg.networkLabel}</Pill></span>
+          <span className="sm:hidden"><Pill tone="slate">Test</Pill></span>
           {signer && (
             <button onClick={logout} className="truncate whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold text-dim hover:bg-card2 hover:text-fg" aria-label="Sign out">
               {famId ? `@${famId}${role ? " · " + role : ""} ·` : ""} Sign out
@@ -161,8 +162,8 @@ export function Shell({ children, famId, role }: { children: ReactNode; famId?: 
 }
 
 /** Shown when nobody is signed in. */
-export function SignIn({ title, blurb, personas }: { title: string; blurb: string; personas?: { name: string; label: string }[] }) {
-  const { login, loginDemo, hasDynamic, ready } = useWallet();
+export function SignIn({ title, blurb }: { title: string; blurb: string }) {
+  const { hasDynamic } = useWallet();
   return (
     <Card className="mx-auto mt-6 max-w-md text-center shadow-glow">
       <span className="yellow-grad mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl text-2xl font-black text-onbrand animate-float">F</span>
@@ -172,23 +173,9 @@ export function SignIn({ title, blurb, personas }: { title: string; blurb: strin
         {hasDynamic ? (
           <EmailLogin />
         ) : (
-          <Button full onClick={login} disabled={!ready}>
-            Create a demo account
-          </Button>
+          <p className="text-sm text-bad">Sign-in is not configured. Set NEXT_PUBLIC_DYNAMIC_ENV_ID.</p>
         )}
       </div>
-      {cfg.judgeMode && personas && personas.length > 0 && (
-        <div className="mt-5 border-t border-line pt-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-dim">Judge Mode: try a ready-made account</p>
-          <div className="flex flex-wrap justify-center gap-2">
-            {personas.map((p) => (
-              <Button key={p.name} variant="soft" onClick={() => loginDemo(p.name)}>
-                {p.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-      )}
     </Card>
   );
 }
@@ -249,10 +236,10 @@ function EmailLogin() {
 
 /** Shown once after the first email login: turn on Face ID / fingerprint for next time. */
 function PasskeyPrompt() {
-  const { auth, signer, isDemo } = useWallet();
+  const { auth, signer } = useWallet();
   const [hidden, setHidden] = useState(false);
   // If this Dynamic environment has passkeys switched off, don't keep offering them.
-  if (isDemo || !signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden || /not enabled/i.test(auth.error ?? "")) return null;
+  if (!signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden || /not enabled/i.test(auth.error ?? "")) return null;
   return (
     <div className="pop mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-brand/30 bg-brand/10 p-4 text-sm text-fg">
       <p className="min-w-0 flex-1">
@@ -361,5 +348,55 @@ export function GoalCard({
       </div>
       {children && <div className="mt-3 flex flex-wrap gap-2">{children}</div>}
     </div>
+  );
+}
+
+/** A confirmation for anything that moves money: says exactly what will happen, then asks. Escape or the backdrop cancels. */
+export function ConfirmDialog({
+  open, title, lines, confirmLabel = "Confirm", danger, busy, onConfirm, onCancel,
+}: {
+  open: boolean; title: string; lines: ReactNode[]; confirmLabel?: string; danger?: boolean; busy?: boolean;
+  onConfirm: () => void; onCancel: () => void;
+}) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    ref.current?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !busy && onCancel();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, busy, onCancel]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center" onClick={() => !busy && onCancel()}>
+      <div role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()} className="pop w-full max-w-md rounded-3xl border border-line bg-card p-5 shadow-glow">
+        <h2 className="text-lg font-extrabold">{title}</h2>
+        <ul className="mt-3 space-y-2 text-sm text-muted">
+          {lines.map((l, i) => (
+            <li key={i} className="flex gap-2"><span aria-hidden className="mt-1.5 h-1.5 w-1.5 flex-none rounded-full bg-brand" /><span>{l}</span></li>
+          ))}
+        </ul>
+        <div className="mt-5 flex gap-2">
+          <Button full variant={danger ? "danger" : "primary"} busy={busy} onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+          <button ref={ref} type="button" disabled={busy} onClick={onCancel} className="w-full rounded-2xl bg-card2 px-5 py-3 text-sm font-bold ring-1 ring-line hover:ring-brand/50 disabled:text-dim">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** A small "waiting for the indexer" / "last updated" strip, so confirmed chain facts and indexed summaries are never confused. */
+export function FreshNote({ fetchedAt, error, blockNumber }: { fetchedAt: number; error?: string | null; blockNumber?: number }) {
+  if (error) return <p className="text-xs text-bad" role="status">Couldn&apos;t refresh this summary: {error}. What you see may be out of date; on-chain balances above are always live.</p>;
+  if (!fetchedAt) return <p className="text-xs text-dim">Loading summary…</p>;
+  return (
+    <p className="text-xs text-dim">
+      Summary from the Envio indexer, refreshed {timeAgo(Math.floor(fetchedAt / 1000))}
+      {blockNumber ? ` · latest counted action at block ${blockNumber}` : ""}. It trails the chain by a moment.
+    </p>
   );
 }

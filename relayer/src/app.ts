@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "fs";
+import { mountPrivate } from "./private.js";
 
 const abi = (name: string) => JSON.parse(readFileSync(new URL(`../../abi/${name}.json`, import.meta.url), "utf8"));
 const FAMFI_ABI = abi("FamFi");
@@ -25,6 +26,8 @@ export interface RelayerConfig {
   maxGas: bigint;
   ratePerMinute: number;
   faucetStatePath: string | null;
+  /** Envio GraphQL endpoint used by the authenticated /private/query reads. Empty disables them. */
+  envioUrl?: string;
 }
 
 /** Functions a user may relay. depositFor is excluded: it pulls USDC from the caller and only the treasury uses it. */
@@ -169,6 +172,14 @@ export function createApp(cfg: RelayerConfig) {
     } catch (e: any) {
       res.status(500).json({ error: e?.shortMessage || e?.message || "faucet failed" });
     }
+  });
+
+  mountPrivate({
+    app,
+    famfiRead,
+    chainId: async () => (await provider.getNetwork()).chainId,
+    envioUrl: cfg.envioUrl ?? "",
+    limited,
   });
 
   /** One-time setup: let FamFi pull the treasury's USDC. */

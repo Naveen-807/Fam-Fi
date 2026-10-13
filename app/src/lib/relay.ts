@@ -5,7 +5,7 @@ import type { Terms } from "./terms";
 
 export type Signer = {
   address: string;
-  kind: "dynamic" | "demo";
+  kind: "dynamic";
   signTypedData: (domain: any, types: any, message: any, primaryType: string) => Promise<string>;
 };
 

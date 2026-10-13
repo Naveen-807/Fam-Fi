@@ -4,8 +4,9 @@
 //
 //   node scripts/deploy-testnet.mjs --dynamic-env <id>
 //   options: --rpc <url> --chain-id <n> --usdc <address> --wallets <file> --explorer <tx-url-prefix>
+//   --dry-run  checks everything and prints what a deploy would change, without sending a transaction or writing a file
 import { createRequire } from "node:module";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +22,7 @@ const RPC = arg("rpc", process.env.RPC_URL || "https://testnet-rpc.monad.xyz");
 const CHAIN_ID = Number(arg("chain-id", "10143"));
 const USDC = arg("usdc", "0x534b2f3A21130d7a60830c2Df862319e593943A3"); // Circle's Monad testnet USDC
 const WALLETS = arg("wallets", path.join(root, ".wallets.json"));
+const DRY = process.argv.includes("--dry-run");
 const DYNAMIC = arg("dynamic-env", process.env.NEXT_PUBLIC_DYNAMIC_ENV_ID || "");
 const EXPLORER = arg("explorer", CHAIN_ID === 10143 ? "https://testnet.monadvision.com/tx/" : "");
 const NETWORK_LABEL = CHAIN_ID === 10143 ? "Monad testnet" : `Chain ${CHAIN_ID}`;
@@ -53,9 +55,33 @@ const usdcBal = await usdc.balanceOf(W.treasury.address);
 const dec = Number(await usdc.decimals());
 console.log(`  treasury  ${ethers.formatUnits(usdcBal, dec)} USDC  ${usdcBal > 0n ? "✓" : "✗ empty"}`);
 if (usdcBal === 0n) problems.push(`treasury (${W.treasury.address}) needs test USDC → https://faucet.circle.com (USDC, Monad Testnet)`);
+// ── 1b. dry run: say what a real deploy would change, then stop ──
+if (DRY) {
+  const prev = path.join(root, "deployments", "monadTestnet.json");
+  const files = ["relayer/.env", "app/.env.local", "indexer/.env", "indexer/config.yaml", "deployments/monadTestnet.json"];
+  console.log("\nDRY RUN: nothing was deployed or written.\n");
+  console.log("A real run would:");
+  console.log("  • deploy a NEW FamFi contract and a new forwarder (FamFi is immutable; missions and FutureFund exist only in the new version)");
+  if (existsSync(prev)) {
+    const old = JSON.parse(readFileSync(prev, "utf8"));
+    console.log(`  • stop pointing the app at the current FamFi ${old.famFi} (deploy block ${old.deployBlock}).`);
+    console.log("    Families, balances and history stay on-chain at that address, but the app, relayer and indexer would no longer use them: everyone starts fresh.");
+    console.log("    The old deployments file is copied to deployments/monadTestnet.previous.json first.");
+  } else console.log("  • (no earlier deployment found in deployments/, so nothing existing would be replaced)");
+  console.log("  • overwrite, with new addresses and the same wallets:");
+  for (const f of files) console.log(`      ${f}${existsSync(path.join(root, f)) ? "  (exists, would be replaced)" : "  (new)"}`);
+  console.log("  • not touch: .wallets.json, Circle's USDC, or your Dynamic environment");
+  if (problems.length) console.log("\nBefore a real run, fix:\n  • " + problems.join("\n  • "));
+  console.log("\nTo go ahead:  node scripts/deploy-testnet.mjs --dynamic-env <id>   (without --dry-run)");
+  process.exit(0);
+}
 if (problems.length) stop("Not ready yet. Please fix:\n  • " + problems.join("\n  • ") + "\n\nThen run this command again.");
 
 // ── 2. deploy (the contract takes the USDC address as a parameter, nothing is mocked) ──
+{
+  const prev = path.join(root, "deployments", "monadTestnet.json");
+  if (existsSync(prev)) { copyFileSync(prev, path.join(root, "deployments", "monadTestnet.previous.json")); console.log("\nKept the earlier deployment record at deployments/monadTestnet.previous.json"); }
+}
 console.log("\nDeploying FamFi and the forwarder…");
 const r = spawnSync(HARDHAT, ["run", "scripts/deploy.ts", "--network", "monadTestnet"], {
   cwd: path.join(root, "contracts"),
@@ -72,7 +98,7 @@ console.log("\nWriting config files…");
 write("relayer/.env", [
   `RPC_URL=${RPC}`, `RELAYER_KEY=${W.relayer.privateKey}`, `TREASURY_KEY=${W.treasury.privateKey}`,
   `FAMFI_ADDRESS=${dep.famFi}`, `FORWARDER_ADDRESS=${dep.forwarder}`, `USDC_ADDRESS=${USDC}`,
-  `ALLOWED_ORIGIN=*`, `FAUCET_AMOUNT=5`, `FAUCET_COOLDOWN_HOURS=24`, `PORT=8787`, "",
+  `ALLOWED_ORIGIN=*`, `ENVIO_URL=http://localhost:8080/v1/graphql`, `FAUCET_AMOUNT=5`, `FAUCET_COOLDOWN_HOURS=24`, `PORT=8787`, "",
 ].join("\n"));
 write("app/.env.local", [
   `NEXT_PUBLIC_RPC_URL=${RPC}`, `NEXT_PUBLIC_CHAIN_ID=${CHAIN_ID}`, `NEXT_PUBLIC_FAMFI=${dep.famFi}`,

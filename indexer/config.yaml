@@ -35,6 +35,15 @@ contracts:
       - event: SplitSharePaid
       - event: RequestCreated
       - event: RequestPaid
+      - event: MissionCreated
+      - event: MissionSubmitted
+      - event: MissionRejected
+      - event: MissionApproved
+      - event: MissionCancelled
+      - event: MissionExpired
+      - event: FundCreated
+      - event: FundContributed
+      - event: FundReleased
 chains:
   - id: 10143 # Monad testnet
     start_block: 69632047 # set to the deploy block from deployments/monad-testnet.json after deploying
