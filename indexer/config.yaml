@@ -49,4 +49,4 @@ chains:
     start_block: 70640050 # set to the deploy block from deployments/monad-testnet.json after deploying
     contracts:
       - name: FamFi
-        address: "${ENVIO_FAMFI_ADDRESS:-0x0000000000000000000000000000000000000001}"
+        address: "${ENVIO_FAMFI_ADDRESS:-0x9B4753f628b1D4445C9C29EC8608E3ec78D2FbE9}"
