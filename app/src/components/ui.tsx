@@ -248,17 +248,18 @@ function EmailLogin() {
 function PasskeyPrompt() {
   const { auth, signer } = useWallet();
   const [hidden, setHidden] = useState(false);
-  // If this Dynamic environment has passkeys switched off, don't keep offering them.
-  if (!signer || !auth || !auth.loggedIn || auth.passkeyRegistered || hidden || /not enabled/i.test(auth.error ?? "")) return null;
+  // Keep failures and confirmed success visible; never hide the explanation after a click.
+  if (!signer || !auth || !auth.loggedIn || hidden || (auth.passkeyRegistered && !auth.passkeyStatus)) return null;
   return (
     <div className="passkey-notice pop flex flex-wrap items-center justify-between gap-3 text-sm text-fg">
       <p className="min-w-0 flex-1">
-        <b className="text-brand">An easier way back in.</b> Use Face ID or fingerprint next time.
-        {auth.error && <span className="mt-1 block text-bad">{auth.error}</span>}
+        <b className="text-brand">{auth.passkeyRegistered ? "Passkey added." : "An easier way back in."}</b> {auth.passkeyRegistered ? "Use your passkey next time you sign in." : "Create a passkey with your device. Your browser handles Touch ID, Face ID or a security key."}
+        {auth.passkeyStatus && <span className="mt-1 block text-muted" role="status">{auth.passkeyStatus}</span>}
+        {auth.passkeyError && <span className="mt-1 block text-bad" role="alert">{auth.passkeyError}</span>}
       </p>
       <div className="flex gap-2">
-        <Button busy={auth.busy} onClick={() => void auth.registerPasskey()}>Turn on</Button>
-        <Button variant="ghost" onClick={() => setHidden(true)}>Not now</Button>
+        {!auth.passkeyRegistered && <Button busy={auth.busy} onClick={() => void auth.registerPasskey()}>{auth.busy ? "Waiting for device…" : auth.passkeyError ? "Retry setup" : "Turn on"}</Button>}
+        <Button variant="ghost" disabled={auth.busy} onClick={() => setHidden(true)}>{auth.passkeyRegistered ? "Done" : "Not now"}</Button>
       </div>
     </div>
   );

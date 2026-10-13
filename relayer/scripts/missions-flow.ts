@@ -101,7 +101,7 @@ async function main() {
 
   const { app, ensureTreasuryAllowance } = createApp({
     rpcUrl: RPC, relayerKey: deployerKey, treasuryKey, famfi: famAddr, forwarder: await fwd.getAddress(), usdc: await usdc.getAddress(),
-    allowedOrigin: "*", faucetAmount: U(100), faucetCooldownMs: 0, maxGas: 3_000_000n, ratePerMinute: 1000, faucetStatePath: null,
+    allowedOrigin: "*", faucetAmount: U(100), faucetCooldownMs: 60000, maxGas: 3_000_000n, ratePerMinute: 1000, faucetStatePath: null,
     envioUrl: `http://127.0.0.1:${INDEXER_PORT}/v1/graphql`, rosterStatePath: null,
   });
   await ensureTreasuryAllowance();
@@ -134,10 +134,10 @@ async function main() {
     return post("/private/query", { auth: { reader: user.address, expiry, signature } });
   };
   const fresh = () => ethers.Wallet.createRandom().connect(provider);
-  const parent = fresh(), teen = fresh(), aunt = fresh(), stranger = fresh();
+  const parent = fresh(), teen = fresh(), aunt = fresh(), stranger = fresh(), prototypeUser = fresh();
   const ledgerTotal = async () => {
     let sum = (await fam.missionEscrow()) + (await fam.fundEscrow());
-    for (const w of [parent, teen, aunt, stranger]) sum += await fam.balance(w.address) + (await fam.streams(w.address)).remaining;
+    for (const w of [parent, teen, aunt, stranger, prototypeUser]) sum += await fam.balance(w.address) + (await fam.streams(w.address)).remaining;
     for (let i = 1; i <= Number(await fam.pendingCount()); i++) { const p = await fam.pendings(i); if (Number(p.status) === 1) sum += p.amount; }
     for (let i = 1; i <= Number(await fam.giftCount()); i++) sum += (await fam.gifts(i)).escrow;
     for (let i = 1; i <= Number(await fam.goalCount()); i++) { const g = await fam.goals(i); if (Number(g.status) === 2 || Number(g.status) === 3) sum += g.saved + g.matched; }
@@ -148,6 +148,7 @@ async function main() {
   let r = await call(parent, "register", [fid("priya"), 1]);
   await call(parent, "createFamily", [19800]);
   await call(aunt, "register", [fid("aunt"), 3]);
+  await call(prototypeUser, "register", [fid("constructor"), 3]);
   await call(stranger, "register", [fid("otherparent"), 1]);
   await call(stranger, "createFamily", [0]);
   const inviteId = ethers.id("flow-invite");
@@ -164,7 +165,19 @@ async function main() {
   check("family set up through the relayer (users hold no gas)", r.status === 200 && (await provider.getBalance(parent.address)) === 0n, r.body.error);
   const joined = await waitFor(async () => { const x = await read(parent); return x.body.data.teens?.some((t: any) => t.id === teen.address.toLowerCase()) ? x : null; }, "joined teen on parent dashboard");
   check("parent roster includes the joined teen with verified family membership", joined.body.data.teens.length === 1 && joined.body.data.teens[0].famId === "alex");
-  for (const id of ["priya", "alex"]) { const f = await post("/faucet", { famId: id }); await waitTx(f.body.hash); }
+  const concurrentTopups = await Promise.all([post("/faucet", { famId: "priya" }), post("/faucet", { famId: "priya" })]);
+  check("simultaneous faucet requests broadcast only one top-up", concurrentTopups.filter(x => x.status === 200).length === 1 && concurrentTopups.filter(x => x.status === 429).length === 1);
+  const topup = concurrentTopups.find(x => x.status === 200);
+  if (!topup) throw new Error("Concurrent faucet test produced no successful top-up");
+  await waitTx(topup.body.hash);
+  check("duplicate faucet requests credit exactly one amount", await fam.balance(parent.address) === U(100));
+  const teenTopup = await post("/faucet", { famId: "alex" }); await waitTx(teenTopup.body.hash);
+  const prototypeTopups = await Promise.all([post("/faucet", { famId: "constructor" }), post("/faucet", { famId: "constructor" })]);
+  check("prototype-named Fam-IDs cannot bypass faucet reservations", prototypeTopups.filter(x => x.status === 200).length === 1 && prototypeTopups.filter(x => x.status === 429).length === 1);
+  const prototypeTopup = prototypeTopups.find(x => x.status === 200);
+  if (!prototypeTopup) throw new Error("Prototype-named faucet test produced no top-up");
+  await waitTx(prototypeTopup.body.hash);
+  check("prototype-named top-up credits exactly one amount", await fam.balance(prototypeUser.address) === U(100));
 
   // ── Feature A/B: a funded mission, end to end ──
   const p0 = await fam.balance(parent.address);

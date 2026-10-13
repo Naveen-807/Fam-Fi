@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ActionError, Button, Card, ConfirmDialog, Empty, Field, FreshNote, Input, Pill, Progress } from "@/components/ui";
 import { ChainFund, readFund } from "@/lib/chain";
@@ -21,10 +21,16 @@ const Src = ({ tx }: { tx: string }) => {
 
 /** The contract's own number for a fund (the indexer is only used for history). */
 function useChainFund(id: string) {
-  const [f, setF] = useState<ChainFund | null>(null);
-  const refresh = useCallback(async () => { try { setF(await readFund(id)); } catch { /* keep last */ } }, [id]);
-  useEffect(() => { void refresh(); const t = setInterval(refresh, 4000); return () => clearInterval(t); }, [refresh]);
-  return { f, refresh };
+  const [state, setState] = useState<{ id: string; f: ChainFund | null; error: boolean }>({ id, f: null, error: false });
+  const active = useRef(id); active.current = id;
+  const sequence = useRef(0);
+  const refresh = useCallback(async () => {
+    const request = ++sequence.current;
+    try { const f = await readFund(id); if (active.current === id && request === sequence.current) setState({ id, f, error: false }); }
+    catch { if (active.current === id && request === sequence.current) setState(s => ({ id, f: s.id === id ? s.f : null, error: true })); }
+  }, [id]);
+  useEffect(() => { setState({ id, f: null, error: false }); void refresh(); const t = setInterval(refresh, 4000); return () => { ++sequence.current; clearInterval(t); }; }, [refresh, id]);
+  return { f: state.id === id ? state.f : null, error: state.id === id && state.error, refresh };
 }
 
 export function MoneyStory({ entries, status }: { entries: FundEntryRow[]; status: string }) {
@@ -131,7 +137,7 @@ export function ParentFutureFund({
 function ParentFund({ row, entries, reserved, balance, onChanged }: { row: FundRow; entries: FundEntryRow[]; reserved: bigint; balance: bigint; onChanged: Changed }) {
   const { signer } = useWallet();
   const { busy, run, error: actionError } = useAct();
-  const { f, refresh } = useChainFund(row.id);
+  const { f, error: liveError, refresh } = useChainFund(row.id);
   const fundingQuery = useSearchParams();
   const [amount, setAmount] = useState(fundingQuery.get("allocate") === "future" ? fundingQuery.get("amount") ?? "" : "");
   const [ask, setAsk] = useState<null | "add" | "release">(null);
@@ -152,7 +158,7 @@ function ParentFund({ row, entries, reserved, balance, onChanged }: { row: FundR
       </div>
       <div className="mt-3"><Progress value={funded} max={target} /></div>
       <dl className="num mt-2 grid grid-cols-3 gap-2 text-xs">
-        <div><dt className="text-dim">Contributed (locked)</dt><dd className="text-sm font-semibold">{fmt(funded)}</dd></div>
+        <div><dt className="text-dim">{open ? "Contributed (locked)" : "Previously released"}</dt><dd className="text-sm font-semibold">{fmt(funded)}</dd></div>
         <div><dt className="text-dim">Family target</dt><dd className="text-sm font-semibold">{fmt(target)}</dd></div>
         <div><dt className="text-dim">Set aside for missions</dt><dd className="text-sm font-semibold">{fmt(reserved)}</dd></div>
       </dl>
@@ -160,10 +166,11 @@ function ParentFund({ row, entries, reserved, balance, onChanged }: { row: FundR
       {open && (
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <div className="w-32"><Input aria-label="Amount to add" inputMode="decimal" placeholder="10" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
-          <Button disabled={!!bad} onClick={() => setAsk("add")}>Add</Button>
-          <Button variant="ghost" disabled={funded === 0n} onClick={() => setAsk("release")}>Release to {cap(row.teenFamId)} now</Button>
+          <Button disabled={!!bad || !f || liveError} onClick={() => setAsk("add")}>Add</Button>
+          <Button variant="ghost" disabled={funded === 0n || !f || liveError} onClick={() => setAsk("release")}>Release to {cap(row.teenFamId)} now</Button>
         </div>
       )}
+      {liveError && <p className="text-sm text-bad" role="status">Live fund state is unavailable. Actions are paused until it refreshes. <Button variant="ghost" onClick={() => void refresh()}>Retry fund</Button></p>}
       <details className="mt-4"><summary>Details & money story</summary><MoneyStory entries={entries} status={storyStatus(f, row)} /></details>
 
       <ConfirmDialog
@@ -206,7 +213,7 @@ export function TeenFutureFund({ bundle, onChanged, fetchedAt, error }: { bundle
   const funds = bundle?.data.funds ?? [];
   return (
     <Card title="FutureFund" right={<Pill tone="slate">not invested</Pill>}>
-      {!bundle ? <Empty>Loading…</Empty> : funds.length === 0 ? (
+      {!bundle ? <Empty>{error ? "Future savings history is unavailable. Retry family access." : "Loading…"}</Empty> : error || bundle.indexerError || bundle.freshness?.lagBlocks == null || bundle.freshness.lagBlocks > 10 ? <Empty>Future savings history is unavailable or catching up. Existing funds remain in the contract.</Empty> : funds.length === 0 ? (
         <Empty>No FutureFund yet. If your parent opens one for you, you&apos;ll see exactly what&apos;s in it and what happened, right here.</Empty>
       ) : (
         <div className="space-y-5">
@@ -221,7 +228,7 @@ export function TeenFutureFund({ bundle, onChanged, fetchedAt, error }: { bundle
 function TeenFund({ row, entries, onChanged }: { row: FundRow; entries: FundEntryRow[]; onChanged: Changed }) {
   const { signer } = useWallet();
   const { busy, run, error: actionError } = useAct();
-  const { f, refresh } = useChainFund(row.id);
+  const { f, error: liveError, refresh } = useChainFund(row.id);
   const [ask, setAsk] = useState(false);
   const funded = f?.funded ?? big(row.funded);
   const target = f?.target ?? big(row.target);
@@ -244,7 +251,8 @@ function TeenFund({ row, entries, onChanged }: { row: FundRow; entries: FundEntr
             : reached ? `You can claim ${fmt(funded)} now. It moves to your spendable balance.` : `${fmt(funded)} is locked for you until ${dateText(row.horizon)}, unless your parent releases it sooner.`
           : "This FutureFund has been paid out to your balance."}
       </p>
-      {open && reached && funded > 0n && <div className="mt-3"><Button onClick={() => setAsk(true)}>Claim {fmt(funded)}</Button></div>}
+      {open && reached && funded > 0n && <div className="mt-3"><Button disabled={!f || liveError} onClick={() => setAsk(true)}>Claim {fmt(funded)}</Button></div>}
+      {liveError && <p className="text-sm text-bad" role="status">Live fund state is unavailable. Claiming is paused until it refreshes. <Button variant="ghost" onClick={() => void refresh()}>Retry fund</Button></p>}
       <details className="mt-4"><summary>Details & money story</summary><MoneyStory entries={entries} status={storyStatus(f, row)} /></details>
       <ConfirmDialog
         open={ask} title="Claim your FutureFund?" confirmLabel={`Claim ${fmt(funded)}`} busy={busy === "fclaim" + row.id}

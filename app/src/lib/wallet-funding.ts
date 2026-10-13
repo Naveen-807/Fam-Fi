@@ -40,7 +40,8 @@ export async function depositWalletUSDC(
     onStage(stage, hash);
     const receipt = await deps.wait(hash);
     if (!receipt) throw new Error("Still waiting for confirmation. Check the transaction before trying again.");
-    if (receipt.status !== 1) throw new Error("The transaction failed. The deposit was not completed.");
+    if (receipt.status === 0) throw new Error("The transaction failed. The deposit was not completed.");
+    if (receipt.status !== 1) throw new Error("The transaction outcome is unknown. Keep its reference and check before repeating the deposit.");
     return { hash, blockNumber: receipt.blockNumber };
   };
   if (await deps.allowance(signer.address, deps.famfi) < amount) {

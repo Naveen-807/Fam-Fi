@@ -80,7 +80,7 @@ function Pay({ split, me, already }: { split: any; me: string; already: boolean 
   if (already || tx)
     return (
       <Card>
-        <p className="font-semibold text-brand">You&apos;ve paid your share ✓</p>
+        <p className="font-semibold text-brand">{tx?.held && !already ? "Your share is held for review; it has not been paid yet." : "You've paid your share ✓"}</p>
         {tx?.held && <p className="mt-2 rounded-xl bg-warn/15 px-4 py-3 text-sm text-warn">Your payment is on hold for a moment {tx.held.kind === 0 ? "because it's over your daily limit, so a parent has to OK it" : "because it looks unusual, and a parent was alerted"}.</p>}
         <Proof tx={tx} label={tx?.held ? "Held" : "Paid"} />
       </Card>

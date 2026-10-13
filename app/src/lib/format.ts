@@ -6,6 +6,11 @@ export function fmt(n: bigint | number | string | null | undefined, dp = 2): str
   const neg = v < 0n;
   const abs = neg ? -v : v;
   const whole = abs / 1_000_000n;
+  // Payment reviews and receipts must not turn tiny amounts into zero or conceal fractional cents.
+  if (dp > 0) {
+    const trailingZeroes = (abs % 1_000_000n).toString().padStart(6, "0").match(/0*$/)![0].length;
+    dp = Math.min(6, Math.max(dp, 6 - trailingZeroes));
+  }
   const frac = (abs % 1_000_000n).toString().padStart(6, "0").slice(0, dp);
   const w = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return `${neg ? "-" : ""}${w}${dp > 0 ? "." + frac : ""}`;

@@ -85,7 +85,7 @@ function MissionItem({ m, onChanged }: { m: MissionRow; onChanged: Changed }) {
       actions={`Approve pays ${reward} once. Send back keeps it set aside so ${cap(m.teenFamId)} can try again before the deadline.`}
     >
       <ActionError error={actionError}/><Button disabled={reviewEnded} onClick={() => setAsk("approve")}>Approve and pay {reward}</Button>
-      <ActionError error={actionError}/><Button disabled={reviewEnded} variant="ghost" onClick={() => setAsk("reject")}>Send back…</Button>
+      <Button disabled={reviewEnded} variant="ghost" onClick={() => setAsk("reject")}>Send back…</Button>
       <span className="self-center text-xs text-dim"><Src tx={m.lastTxHash} /></span>
       <MissionReview id={m.id} onChanged={onChanged}/>
 

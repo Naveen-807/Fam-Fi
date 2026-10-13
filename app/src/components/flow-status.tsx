@@ -29,6 +29,7 @@ export function FeatureGate({ supported, label, children }: { supported: boolean
 }
 
 export function SyncNotice({ bundle }: { bundle: Bundle | null }) {
+  if (!bundle) return <p className="service-notice" role="status">Connecting confirmed family history…</p>;
   if (bundle?.indexerError) return <p className="service-notice" role="status">Family history is temporarily unavailable. Verified goal requests and payment approvals are still available; other summaries may be missing.</p>;
   const lag = bundle?.freshness?.lagBlocks;
   if (bundle?.freshness && (bundle.freshness.indexedBlock === null || bundle.freshness.error)) return <p className="service-notice" role="status">Family history is waiting for the network. Current balances and verified approvals come directly from the contract.</p>;

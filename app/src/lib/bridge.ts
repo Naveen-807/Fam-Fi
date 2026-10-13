@@ -11,6 +11,8 @@ export type DynamicAuth = {
   error: string | null;
   /** true once a passkey was turned on from this browser */
   passkeyRegistered: boolean;
+  passkeyStatus?: string | null;
+  passkeyError?: string | null;
   sendCode: (email: string) => Promise<void>;
   verifyCode: (code: string) => Promise<void>;
   /** back to the email step */

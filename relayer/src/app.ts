@@ -68,13 +68,13 @@ export function createApp(cfg: RelayerConfig) {
   };
 
   // ── faucet cooldowns, persisted so a restart does not reset them ──
-  const faucetSeen: Record<string, number> = (() => {
+  const faucetSeen: Record<string, number> = Object.assign(Object.create(null), (() => {
     try {
       return cfg.faucetStatePath && existsSync(cfg.faucetStatePath) ? JSON.parse(readFileSync(cfg.faucetStatePath, "utf8")) : {};
     } catch {
       return {}; // unreadable state file: start clean rather than crash
     }
-  })();
+  })());
   const saveFaucet = () => cfg.faucetStatePath && writeFileSync(cfg.faucetStatePath, JSON.stringify(faucetSeen));
 
   const revertReason = (e: any): string => {
@@ -170,15 +170,23 @@ export function createApp(cfg: RelayerConfig) {
         const waitMin = Math.ceil((cfg.faucetCooldownMs - (Date.now() - last)) / 60000);
         return res.status(429).json({ error: `already topped up; try again in ${waitMin} min` });
       }
-      const bal: bigint = await usdc.balanceOf(await treasury.getAddress());
-      if (bal < cfg.faucetAmount) return res.status(503).json({ error: "treasury is empty" });
-      faucetSeen[famId] = Date.now(); // reserve first so double taps cannot double-spend
+      // Reserve before any further await: simultaneous requests must see the reservation.
+      const reservedAt = Date.now();
+      faucetSeen[famId] = reservedAt;
       try {
-        const tx = await famfiTreasury.depositFor(to, cfg.faucetAmount);
+        // Persist the reservation before broadcasting; a disk failure must not allow a second deposit.
         saveFaucet();
+        const bal: bigint = await usdc.balanceOf(await treasury.getAddress());
+        if (bal < cfg.faucetAmount) { delete faucetSeen[famId]; saveFaucet(); return res.status(503).json({ error: "treasury is empty" }); }
+        const tx = await famfiTreasury.depositFor(to, cfg.faucetAmount);
+        // Only a confirmed revert clears cooldown. RPC failure is an unknown outcome, not permission to pay twice.
+        void provider.waitForTransaction(tx.hash).then(receipt => {
+          if (receipt?.status === 0 && faucetSeen[famId] === reservedAt) { delete faucetSeen[famId]; saveFaucet(); }
+        }).catch(() => {});
         res.json({ hash: tx.hash, amount: ethers.formatUnits(cfg.faucetAmount, 6) });
       } catch (e) {
         delete faucetSeen[famId];
+        try { saveFaucet(); } catch { /* Failure stays visible; a new request must persist before broadcasting. */ }
         throw e;
       }
     } catch (e: any) {

@@ -39,6 +39,7 @@ coverage/
 *.orig
 *.rej
 deployments/*.previous.json
+PROJECT_AUDIT.md
 
 # Generated contract/indexer files
 contracts/artifacts/

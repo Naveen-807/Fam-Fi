@@ -122,6 +122,7 @@ export function WalletFunding({ onDone, family = true }: { onDone: () => void | 
                 setError("Saved transaction does not match this wallet and funding action. No deposit was credited by this recovery check.");
                 return;
               }
+              if (receipt.status !== 0 && receipt.status !== 1) { setError("Transaction outcome is unknown. Keep this reference and check again; do not submit another deposit."); return; }
               localStorage.removeItem(storageKey); setNeedsCheck(false); setOperation(null);
               if (receipt.status !== 1) { setStage(null); setError("Transaction failed. You can review and try again."); return; }
               if (operation.stage === "approving") { setStage(null); setError("Authorization confirmed. No money moved. Review the deposit to finish funding."); }

@@ -21,6 +21,7 @@ import { cfg } from "./config";
 import type { Bridge } from "./bridge";
 import type { Signer } from "./relay";
 import { withWalletAuthRefresh } from "./wallet-auth";
+import { passkeyBrowserError, passkeyErrorMessage } from "./passkey-feedback";
 
 /**
  * Real sign-in with Dynamic's headless SDK: email one-time code -> an embedded wallet is created for that
@@ -109,8 +110,12 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passkeyOn, setPasskeyOn] = useState(false);
+  const [passkeyStatus, setPasskeyStatus] = useState<string | null>(null);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+  const registeringPasskey = useRef(false);
   const passkeyOwner = user?.id ?? "";
-  useEffect(() => setPasskeyOn(readFlag(passkeyOwner)), [passkeyOwner]);
+  const activePasskeyOwner = useRef(passkeyOwner); activePasskeyOwner.current = passkeyOwner;
+  useEffect(() => { setPasskeyOn(readFlag(passkeyOwner)); setPasskeyStatus(null); setPasskeyError(null); }, [passkeyOwner]);
 
   // A wallet is not created by sign-in itself. Create one the moment a user appears (docs: do it unconditionally).
   const creating = useRef(false);
@@ -207,6 +212,8 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
       busy,
       error: error ?? (init === "failed" ? "Sign-in isn't set up correctly yet (check the Dynamic environment ID)." : null),
       passkeyRegistered: passkeyOn,
+      passkeyStatus,
+      passkeyError,
       sendCode: (e: string) =>
         wrap(async () => {
           setEmail(e);
@@ -223,20 +230,34 @@ function BridgeReporter({ onBridge }: { onBridge: (b: Bridge) => void }) {
         setError(null);
       },
       signInWithPasskey: () => wrap(async () => void (await passkeyIn.mutateAsync(undefined))),
-      registerPasskey: () =>
-        wrap(async () => {
+      registerPasskey: async () => {
+        if (registeringPasskey.current) return;
+        setPasskeyError(null);
+        const unsupported = passkeyBrowserError(window.isSecureContext, typeof PublicKeyCredential !== "undefined" && typeof navigator.credentials?.create === "function");
+        if (unsupported) { setPasskeyError(unsupported); return; }
+        registeringPasskey.current = true;
+        setBusy(true);
+        setPasskeyStatus("Opening your browser's create-passkey prompt…");
+        const waiting = setTimeout(() => { if (activePasskeyOwner.current === passkeyOwner) setPasskeyStatus("Still waiting for your browser or device. Look for a passkey prompt in front of or behind this window. Complete or cancel it before retrying."); }, 15000);
+        try {
           await passkeyReg.mutateAsync(undefined);
+          if (activePasskeyOwner.current !== passkeyOwner) return;
           setPasskeyOn(true);
-          try {
-            if (passkeyOwner) localStorage.setItem(`${PASSKEY_FLAG}:${passkeyOwner}`, "1");
-          } catch {
-            /* convenience only */
-          }
-        }),
+          setPasskeyStatus("Passkey added. You can use it to sign in next time.");
+          try { if (passkeyOwner) localStorage.setItem(`${PASSKEY_FLAG}:${passkeyOwner}`, "1"); } catch { /* convenience only */ }
+        } catch (e) {
+          setPasskeyStatus(null);
+          setPasskeyError(passkeyErrorMessage(e));
+        } finally {
+          clearTimeout(waiting);
+          registeringPasskey.current = false;
+          setBusy(false);
+        }
+      },
       retryWalletSetup: () => wrap(makeWallet),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user, otp, email, busy, error, passkeyOn, passkeyOwner, wrap, init, makeWallet],
+    [user, otp, email, busy, error, passkeyOn, passkeyOwner, passkeyStatus, passkeyError, wrap, init, makeWallet],
   );
 
   useEffect(() => {

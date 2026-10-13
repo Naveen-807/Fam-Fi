@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import { cfg } from "./config";
 import { fam, fwd, provider, friendlyError } from "./chain";
 import type { Terms } from "./terms";
+import { confirmedReceipt } from "./transaction-receipt";
 
 import type { Signer } from "./signer";
 export type { Signer } from "./signer";
@@ -64,13 +65,7 @@ export async function relay(signer: Signer, fn: string, args: unknown[]): Promis
   if (!res.ok) throw new Error(friendlyError({ message: body.error || `relay failed (${res.status})` }));
 
   const hash: string = body.hash;
-  let receipt = null as ethers.TransactionReceipt | null;
-  for (let i = 0; i < 400 && !receipt; i++) {
-    receipt = await provider.getTransactionReceipt(hash);
-    if (!receipt) await new Promise((r) => setTimeout(r, 60));
-  }
-  if (!receipt) throw new Error("The network is slow right now. Check the timeline in a moment.");
-  if (receipt.status === 0) throw new Error("That didn't go through. Nothing was spent.");
+  const receipt = await confirmedReceipt(hash, h => provider.getTransactionReceipt(h), 400, 60);
   const includedMs = performance.now() - t0;
 
   const events: TxResult["events"] = [];
@@ -123,10 +118,7 @@ export async function faucet(famId: string): Promise<{ hash: string; amount: str
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || "Couldn't add money right now.");
-  for (let i = 0; i < 300; i++) {
-    if (await provider.getTransactionReceipt(body.hash)) break;
-    await new Promise((r) => setTimeout(r, 80));
-  }
+  await confirmedReceipt(body.hash, h => provider.getTransactionReceipt(h));
   return body;
 }
 

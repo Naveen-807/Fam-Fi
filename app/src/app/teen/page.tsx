@@ -88,6 +88,7 @@ function Dashboard({ acct }: { acct: Account }) {
   if (!view) return <Empty>Loading your account…</Empty>;
   const spendable = liveSpendable(view, now);
   const limit = view.limits[view.level] ?? 0n;
+  const historyReady = !!priv.bundle && !priv.error && !priv.bundle.indexerError && priv.bundle.freshness?.lagBlocks != null && priv.bundle.freshness.lagBlocks <= 10;
 
   return (
     <Workspace sections={teenSections} view={section} famId={acct.famId} role="teen">
@@ -123,10 +124,10 @@ function Dashboard({ acct }: { acct: Account }) {
 
       {priv.error && <p className="service-notice" role="status">Your history is temporarily unavailable. Your spending balance comes directly from the network; <span>{priv.error}</span> <Button variant="ghost" onClick={() => void priv.refresh()}>Retry family access</Button></p>}
       {section === "overview" && priv.bundle && <FeaturedGoal goals={priv.bundle.data.goals}/>}
-      {section === "overview" && priv.bundle && <TeenMissions missions={priv.bundle.data.missions.filter(m=>m.status==="ACTIVE" || m.status==="REJECTED" || m.status==="SUBMITTED").sort((a,b)=>Number(a.status==="SUBMITTED")-Number(b.status==="SUBMITTED")).slice(0,1)} frozen={view.frozen} onChanged={changed}/>}
+      {section === "overview" && priv.bundle && (historyReady ? <TeenMissions missions={priv.bundle.data.missions.filter(m=>m.status==="ACTIVE" || m.status==="REJECTED" || m.status==="SUBMITTED").sort((a,b)=>Number(a.status==="SUBMITTED")-Number(b.status==="SUBMITTED")).slice(0,1)} frozen={view.frozen} onChanged={changed}/> : <Card title="Missions"><Empty>Mission history is catching up. Existing rewards remain reserved in the contract.</Empty></Card>)}
       {section === "overview" && <div className="overview-columns"><Passport bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error} /><Held me={me} view={view} bundle={priv.bundle} onDone={() => { void refresh(); void priv.refresh(); }} /></div>}
       {section === "payments" && <div className="grid gap-8 lg:grid-cols-2"><div className="space-y-8"><PayCard acct={acct} onDone={refresh} /><Held me={me} view={view} bundle={priv.bundle} onDone={() => { void refresh(); void priv.refresh(); }} /></div><div className="space-y-8"><Requests parentId={parentId} bundle={priv.bundle} me={me} onDone={() => { void refresh(); void priv.refresh(); }} /><SplitCard onDone={refresh} /></div></div>}
-      {section === "missions" && <FeatureGate supported={capabilities.missions} label="Missions">{!priv.bundle || priv.error || priv.bundle.indexerError ? <Card title="Missions"><Empty>{priv.error || priv.bundle?.indexerError ? "Mission history is unavailable until family access is restored. Your parent's reserved rewards remain in the contract." : "Loading confirmed missions…"}</Empty></Card> : <TeenMissions missions={priv.bundle.data.missions} frozen={view.frozen} onChanged={changed} />}</FeatureGate>}
+      {section === "missions" && <FeatureGate supported={capabilities.missions} label="Missions">{!historyReady ? <Card title="Missions"><Empty>{priv.error || priv.bundle?.indexerError ? "Mission history is unavailable until family access is restored. Your parent's reserved rewards remain in the contract." : "Loading confirmed missions while history catches up…"}</Empty></Card> : <TeenMissions missions={priv.bundle!.data.missions} frozen={view.frozen} onChanged={changed} />}</FeatureGate>}
       {section === "savings" && <div className="space-y-8"><SavingStory bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error} onRetry={priv.refresh} /><Goals acct={acct} me={me} view={view} bundle={priv.bundle} onDone={() => { refresh(); void priv.refresh(); }} /><FeatureGate supported={capabilities.futureFund} label="FutureFund"><TeenFutureFund bundle={priv.bundle} onChanged={changed} fetchedAt={priv.fetchedAt} error={priv.error} /></FeatureGate></div>}
       {section === "activity" && <Passport bundle={priv.bundle} fetchedAt={priv.fetchedAt} error={priv.error}/>}
       {section === "activity" && <Card title="Your timeline">{priv.error || priv.bundle?.indexerError ? <Empty>Activity is unavailable while the indexer catches up.</Empty> : <Timeline rows={priv.bundle?.data.timeline} />}</Card>}
@@ -145,6 +146,7 @@ function AddMoney({ famId, onDone }: { famId: string; onDone: () => void }) {
       >
         {busy === "add" ? "Adding…" : "+ Add test USDC"}
       </button>
+      <ActionError error={actionError}/>
     </div>
   );
 }
@@ -312,6 +314,7 @@ function Requests({ parentId, bundle, me, onDone }: { parentId: string; bundle: 
   const [memo, setMemo] = useState("");
   const target = to || parentId;
   const incomingRows = bundle?.data.incomingRequests ?? [];
+  const [payingRequest, setPayingRequest] = useState<(typeof incomingRows)[number] | null>(null);
 
   async function ask() {
     const amt = parseAmount(amount);
@@ -338,11 +341,16 @@ function Requests({ parentId, bundle, me, onDone }: { parentId: string; bundle: 
           {incomingRows.map((r) => (
             <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card2 p-3">
               <p className="text-sm"><span className="font-semibold">{cap(r.fromFamId)}</span> asks for <span className="num font-semibold">{fmt(big(r.amount))}</span>{r.memo ? ` · ${r.memo}` : ""}</p>
-              <Button busy={busy === "pr" + r.id} onClick={async () => { if (await run("pr" + r.id, () => relay(signer!, "payRequest", [BigInt(r.id)]), "Paid")) onDone(); }}>Pay</Button>
+              <Button busy={busy === "pr" + r.id} onClick={() => setPayingRequest(r)}>Review payment</Button>
             </div>
           ))}
         </div>
       )}
+      <ConfirmDialog open={!!payingRequest} title="Pay this request?" confirmLabel="Confirm payment" busy={busy === "pr" + payingRequest?.id} onCancel={() => setPayingRequest(null)} lines={payingRequest ? [`${fmt(big(payingRequest.amount))} test USDC goes from your money to @${payingRequest.fromFamId}.`, "Your daily limit and safety rules apply. If the payment is held, it stays pending until released; the recipient has not been paid."] : []} onConfirm={async () => {
+        if (!payingRequest) return;
+        const r = await run("pr" + payingRequest.id, () => relay(signer!, "payRequest", [BigInt(payingRequest.id)]), tx => tx.held ? "Payment held for review; not paid yet." : "Paid");
+        if (r) { setPayingRequest(null); onDone(); }
+      }}/>
     </Card>
   );
 }

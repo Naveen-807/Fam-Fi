@@ -11,7 +11,7 @@ export function SavingStory({ bundle, fetchedAt, error, onRetry }: { bundle: Bun
   const releases = bundle?.data.matchReleases ?? [];
   return (
     <Card title="Saved together" right={<Pill tone="mint">Confirmed contributions</Pill>}>
-      {!bundle ? <Empty>{error || "Loading your savings story…"}</Empty> : !receipts.length ? (
+      {!bundle ? <Empty>{error || "Loading your savings story…"}</Empty> : (error || bundle.indexerError || bundle.freshness?.lagBlocks == null || bundle.freshness.lagBlocks > 10) && !receipts.length ? <Empty>Savings receipts are unavailable or catching up. Existing contributions remain on the contract.</Empty> : !receipts.length ? (
         <Empty>Save toward a goal and see your contribution and family matching together here.</Empty>
       ) : (
         <ol className="space-y-4">
