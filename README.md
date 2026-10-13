@@ -89,7 +89,7 @@ For money-moving steps, show the **confirmed receipt and resulting balances or s
 - **Test USDC:** `0x534b2f3A21130d7a60830c2Df862319e593943A3`
 - **Evidence:** [deployment transactions and recorded bytecode verification](deployments/monadTestnet.json). Contract replacement does not automatically migrate families or balances.
 - **Checks included:** contract authorization and custody invariants; mission lifecycle and replay protection; authenticated family scopes; indexer aggregation; local integration flows; frontend types, builds, and sign-in rendering.
-- **Still pending:** public backend hosting, durable hosted indexing, and a complete recorded two-account Dynamic walkthrough. Local integration tests use temporary accounts and a mock token; they do not prove hosted operation or real-user signing.
+
 
 ## Run locally
 
